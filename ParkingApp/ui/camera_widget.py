@@ -1,6 +1,8 @@
 """
 ویجت دوربین و پلاک‌خوانی - نسخه نهایی
 """
+
+from alpr.engine import ALPREngine
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QGroupBox, QCheckBox,
@@ -30,6 +32,7 @@ class PlateDetectorThread(QThread):
         self.running = False
         self.detect_enabled = True
         self.current_frame = None
+        self.alpr_engine = ALPREngine()
 
     def run(self):
         self.running = True
@@ -47,6 +50,10 @@ class PlateDetectorThread(QThread):
             self.msleep(100)
 
     def detect_plates(self, frame):
+        results = self.alpr_engine.process(frame)
+
+        if results:
+            return results
         plates = []
         try:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
