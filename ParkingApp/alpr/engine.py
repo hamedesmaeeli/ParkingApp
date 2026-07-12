@@ -6,7 +6,7 @@ Responsible for orchestrating:
 - OCR
 - Plate Validation
 """
-
+from .detector import PlateDetector
 from typing import List
 import numpy as np
 
@@ -20,10 +20,10 @@ class ALPREngine:
 
     def __init__(self):
         # در Sprintهای بعدی مقداردهی خواهند شد
-        self.detector = None
+
         self.ocr = None
         self.validator = None
-
+        self.detector = PlateDetector()
     def process(self, frame: np.ndarray) -> List[PlateResult]:
         """
         Process one video frame.
@@ -42,3 +42,6 @@ class ALPREngine:
         # TODO: Validation (Sprint 3)
 
         return results
+
+    def detect_candidates(self, frame):
+        return self.detector.detect(frame)

@@ -50,37 +50,52 @@ class PlateDetectorThread(QThread):
             self.msleep(100)
 
     def detect_plates(self, frame):
+        """
+        Detect license plates in current frame.
+
+        During Sprint1 this method still generates mock plate numbers.
+        In Sprint2 the mock generation will be replaced with YOLO + OCR.
+        """
+
+        # آینده: اگر موتور اصلی نتیجه برگرداند، از آن استفاده می‌کنیم
         results = self.alpr_engine.process(frame)
 
         if results:
             return results
+
         plates = []
+
         try:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            gray = cv2.equalizeHist(gray)
-            gray = cv2.GaussianBlur(gray, (5, 5), 0)
-            edges = cv2.Canny(gray, 50, 150)
-            contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                if area < 5000 or area > 80000: continue
-                peri = cv2.arcLength(contour, True)
-                approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
-                if len(approx) == 4:
-                    x, y, w, h = cv2.boundingRect(contour)
-                    aspect_ratio = w / float(h)
-                    if 2.8 < aspect_ratio < 3.8:
-                        letters = ['الف', 'ب', 'پ', 'ت', 'ث', 'ج', 'چ', 'ح', 'خ', 'د', 'س', 'ص', 'ط', 'ع', 'ق', 'ل',
-                                   'م', 'ن', 'و', 'ه', 'ی']
-                        plate_text = f"{random.randint(10, 99):02d}{random.choice(letters)}{random.randint(100, 999):03d}-{random.randint(10, 99):02d}"
-                        plates.append((plate_text, (x, y, w, h), 0.85))
+            # دریافت کادرهای احتمالی پلاک از Detector
+            candidates = self.alpr_engine.detect_candidates(frame)
+
+            letters = [
+                'الف', 'ب', 'پ', 'ت', 'ث', 'ج', 'چ',
+                'ح', 'خ', 'د', 'س', 'ص', 'ط', 'ع',
+                'ق', 'ل', 'م', 'ن', 'و', 'ه', 'ی'
+            ]
+
+            for x, y, w, h in candidates:
+                # در Sprint2 حذف خواهد شد
+                plate_text = (
+                    f"{random.randint(10, 99):02d}"
+                    f"{random.choice(letters)}"
+                    f"{random.randint(100, 999):03d}-"
+                    f"{random.randint(10, 99):02d}"
+                )
+
+                plates.append(
+                    (
+                        plate_text,
+                        (x, y, w, h),
+                        0.85
+                    )
+                )
+
         except Exception as e:
             print(f"Detection error: {e}")
-        return plates
 
-    def stop(self):
-        self.running = False
-        self.wait()
+        return plates
 
 
 class CameraWidget(QWidget):
