@@ -1,47 +1,50 @@
-"""
-ALPR Engine
-
-Responsible for orchestrating:
-- Plate Detection
-- OCR
-- Plate Validation
-"""
-from .detector import PlateDetector
 from typing import List
+import random
 import numpy as np
 
 from .models import PlateResult
+from .detector import PlateDetector
 
 
 class ALPREngine:
-    """
-    Main ALPR engine.
-    """
 
     def __init__(self):
-        # در Sprintهای بعدی مقداردهی خواهند شد
+
+        self.detector = PlateDetector()
 
         self.ocr = None
         self.validator = None
-        self.detector = PlateDetector()
+
+        self.letters = [
+            'الف', 'ب', 'پ', 'ت', 'ث', 'ج',
+            'چ', 'ح', 'خ', 'د', 'س', 'ص',
+            'ط', 'ع', 'ق', 'ل', 'م',
+            'ن', 'و', 'ه', 'ی'
+        ]
+
     def process(self, frame: np.ndarray) -> List[PlateResult]:
-        """
-        Process one video frame.
 
-        Args:
-            frame: OpenCV image (numpy.ndarray)
+        results = []
 
-        Returns:
-            List[PlateResult]
-        """
+        candidates = self.detector.detect(frame)
 
-        results: List[PlateResult] = []
+        for x, y, w, h in candidates:
 
-        # TODO: Plate Detection (Sprint 2)
-        # TODO: OCR (Sprint 3)
-        # TODO: Validation (Sprint 3)
+            # فقط موقت (تا Sprint2)
+            plate = (
+                f"{random.randint(10,99):02d}"
+                f"{random.choice(self.letters)}"
+                f"{random.randint(100,999):03d}-"
+                f"{random.randint(10,99):02d}"
+            )
+
+            results.append(
+                PlateResult(
+                    plate=plate,
+                    confidence=0.85,
+                    bbox=(x, y, w, h),
+                    image=frame[y:y+h, x:x+w]
+                )
+            )
 
         return results
-
-    def detect_candidates(self, frame):
-        return self.detector.detect(frame)

@@ -39,64 +39,41 @@ class PlateDetectorThread(QThread):
         while self.running:
             if self.current_frame is not None and self.detect_enabled:
                 frame = self.current_frame.copy()
-                plates = self.detect_plates(frame)
-                for plate_text, bbox, confidence in plates:
-                    x, y, w, h = bbox
-                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
-                    cv2.putText(frame, plate_text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-                    if confidence > 0.6:
+                results = self.detect_plates(frame)
+
+                for result in results:
+
+                    x, y, w, h = result.bbox
+
+                    cv2.rectangle(
+                        frame,
+                        (x, y),
+                        (x + w, y + h),
+                        (0, 255, 0),
+                        3
+                    )
+
+                    cv2.putText(
+                        frame,
+                        result.plate,
+                        (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.9,
+                        (0, 255, 0),
+                        2
+                    )
+
+                    if result.confidence > 0.6:
+                        self.plate_detected.emit(
+                            result.plate,
+                            result.confidence
+                        )
                         self.plate_detected.emit(plate_text, confidence)
                 self.frame_processed.emit(frame)
             self.msleep(100)
 
     def detect_plates(self, frame):
-        """
-        Detect license plates in current frame.
-
-        During Sprint1 this method still generates mock plate numbers.
-        In Sprint2 the mock generation will be replaced with YOLO + OCR.
-        """
-
-        # آینده: اگر موتور اصلی نتیجه برگرداند، از آن استفاده می‌کنیم
-        results = self.alpr_engine.process(frame)
-
-        if results:
-            return results
-
-        plates = []
-
-        try:
-            # دریافت کادرهای احتمالی پلاک از Detector
-            candidates = self.alpr_engine.detect_candidates(frame)
-
-            letters = [
-                'الف', 'ب', 'پ', 'ت', 'ث', 'ج', 'چ',
-                'ح', 'خ', 'د', 'س', 'ص', 'ط', 'ع',
-                'ق', 'ل', 'م', 'ن', 'و', 'ه', 'ی'
-            ]
-
-            for x, y, w, h in candidates:
-                # در Sprint2 حذف خواهد شد
-                plate_text = (
-                    f"{random.randint(10, 99):02d}"
-                    f"{random.choice(letters)}"
-                    f"{random.randint(100, 999):03d}-"
-                    f"{random.randint(10, 99):02d}"
-                )
-
-                plates.append(
-                    (
-                        plate_text,
-                        (x, y, w, h),
-                        0.85
-                    )
-                )
-
-        except Exception as e:
-            print(f"Detection error: {e}")
-
-        return plates
-
+        return self.alpr_engine.process(frame)
 
 class CameraWidget(QWidget):
     """ویجت دوربین با تشخیص پلاک"""
