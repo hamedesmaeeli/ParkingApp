@@ -1,39 +1,37 @@
-Sprint1
+# TODO List
+
+## Sprint 1 - Foundation ✅ (COMPLETED)
 
 [x] ALPR Package
+[x] PlateResult
+[x] Detector
+[x] Remove Random
+[x] Logging
+[x] Exception Handling
+[x] Prepare YOLO Interface
+[x] Mock Mode for Testing
+[x] Integrate with EntryWidget
 
-[ ] PlateResult
+## Sprint 2 - YOLO Detection (NEXT)
 
-[ ] Detector
+[ ] Install Ultralytics
+[ ] Load YOLO model
+[ ] Implement YOLODetector
+[ ] Plate detection on images
+[ ] Crop detected plates
+[ ] Multi-plate detection
+[ ] Draw bounding boxes
+[ ] CPU benchmark
 
-[ ] Remove Random
+## Sprint 3 - PaddleOCR
 
-----------------
-
-Sprint2
-
-[ ] YOLO
-
-[ ] Crop Plate
-
-[ ] BoundingBox
-
-----------------
-
-Sprint3
-
-[ ] PaddleOCR
-
+[ ] Install PaddleOCR
+[ ] Read plate text
 [ ] Validation
+[ ] Confidence score
 
-[ ] Confidence
-
-----------------
-
-Sprint4
+## Sprint 4 - Parking Core
 
 [ ] Entry
-
 [ ] Exit
-
 [ ] Reports
