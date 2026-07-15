@@ -147,14 +147,7 @@ class MainWindow(QMainWindow):
         history_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.tab_widget.addTab(history_scroll, "  📊  تاریخچه  ")
 
-        # تب ۵: دوربین
-        self.camera_widget = CameraWidget()
-        self.camera_widget.plate_detected.connect(self.on_plate_detected)
-        camera_scroll = QScrollArea()
-        camera_scroll.setWidgetResizable(True)
-        camera_scroll.setWidget(self.camera_widget)
-        camera_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.tab_widget.addTab(camera_scroll, "  📷  دوربین  ")
+
 
         # تب ۶: تنظیمات
         self.settings_tab = SettingsTab(self.db)
@@ -314,15 +307,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'active_tab'):
             self.active_tab.refresh_data()
 
-    def on_plate_detected(self, plate_number):
-        """تشخیص پلاک از دوربین"""
-        self.status_bar.showMessage(f"🔍 پلاک شناسایی شد: {plate_number}", 5000)
-
-        # اگر در تب ورود هستیم، پلاک رو پر کن
-        if self.tab_widget.currentIndex() == 0:
-            plate = IranianPlate.from_full_plate(plate_number)
-            if plate.is_valid:
-                self.entry_widget.set_plate(plate)
 
     def on_settings_changed(self):
         """تغییر تنظیمات"""

@@ -1,20 +1,24 @@
 """
-فرم ورود خودرو - با دوربین داخلی
+فرم ورود خودرو - با دوربین داخلی و قابلیت بارگذاری عکس + ALPR واقعی
 """
+
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QMessageBox, QFrame, QGroupBox,
-    QSizePolicy, QProgressBar
+    QLineEdit, QPushButton, QMessageBox, QFrame,
+    QSizePolicy, QProgressBar, QFileDialog, QApplication
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
-from PyQt5.QtGui import QFont, QImage, QPixmap
+from PyQt5.QtGui import QImage, QPixmap
 import cv2
-import numpy as np
 from datetime import datetime
-import sys, os
+import sys
+import os
+import random
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from plate_utils import IranianPlate
+from alpr.engine import ALPREngine
 
 
 class EntryWidget(QWidget):
@@ -28,6 +32,13 @@ class EntryWidget(QWidget):
         self.camera_active = False
         self.capture = None
         self.current_frame = None
+        self.image_loaded = False
+
+        # ========== ALPR Engine ==========
+        self.alpr_engine = ALPREngine(mock_mode=True)  # <-- فعال کردن حالت تست
+
+        # =================================
+
         self.init_ui()
 
     def init_ui(self):
@@ -89,7 +100,7 @@ class EntryWidget(QWidget):
 
         camera_layout.addWidget(self.camera_label)
 
-        # دکمه‌های دوربین
+        # ============ دکمه‌های دوربین ============
         cam_btn_layout = QHBoxLayout()
 
         self.start_cam_btn = QPushButton("▶️ شروع")
@@ -125,9 +136,22 @@ class EntryWidget(QWidget):
         """)
         self.scan_btn.clicked.connect(self.scan_plate)
 
+        # دکمه جدید بارگذاری عکس
+        self.upload_btn = QPushButton("📂 بارگذاری عکس")
+        self.upload_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9b59b6; color: white; font-weight: bold;
+                padding: 8px 15px; border-radius: 6px; font-size: 12px; border: none;
+            }
+            QPushButton:hover { background-color: #8e44ad; }
+        """)
+        self.upload_btn.clicked.connect(self.upload_image)
+
+        # اضافه کردن دکمه‌ها به layout
         cam_btn_layout.addWidget(self.start_cam_btn)
         cam_btn_layout.addWidget(self.stop_cam_btn)
         cam_btn_layout.addWidget(self.scan_btn)
+        cam_btn_layout.addWidget(self.upload_btn)
 
         camera_layout.addLayout(cam_btn_layout)
 
@@ -298,7 +322,7 @@ class EntryWidget(QWidget):
         spacer.setMinimumHeight(30)
         layout.addWidget(spacer)
 
-    # ============ دوربین ============
+    # ======================== دوربین ========================
 
     def start_camera(self):
         """شروع دوربین"""
@@ -313,8 +337,8 @@ class EntryWidget(QWidget):
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
             self.camera_active = True
+            self.image_loaded = False
 
-            # تایمر دریافت فریم
             self.cam_timer = QTimer()
             self.cam_timer.timeout.connect(self.update_camera)
             self.cam_timer.start(100)
@@ -339,15 +363,7 @@ class EntryWidget(QWidget):
             ret, frame = self.capture.read()
             if ret:
                 self.current_frame = frame.copy()
-
-                # نمایش در label
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                h, w, ch = rgb_frame.shape
-                bytes_per_line = ch * w
-                qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
-                pixmap = QPixmap.fromImage(qt_image)
-                scaled = pixmap.scaled(280, 210, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                self.camera_label.setPixmap(scaled)
+                self.display_image(frame)
 
     def stop_camera(self):
         """توقف دوربین"""
@@ -376,54 +392,205 @@ class EntryWidget(QWidget):
             }
         """)
 
+    # ======================== بارگذاری عکس ========================
+
+    def upload_image(self):
+        """بارگذاری عکس از سیستم"""
+        if self.camera_active:
+            self.stop_camera()
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "انتخاب عکس پلاک",
+            "",
+            "تصاویر (*.jpg *.jpeg *.png *.bmp);;همه فایل‌ها (*.*)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            frame = cv2.imread(file_path)
+            if frame is None:
+                QMessageBox.warning(self, "⚠️ خطا", "فایل تصویر معتبر نیست")
+                return
+
+            self.current_frame = frame.copy()
+            self.image_loaded = True
+            self.display_image(frame)
+            self.scan_plate_from_image()
+
+        except Exception as e:
+            QMessageBox.critical(self, "❌ خطا", f"خطا در بارگذاری عکس:\n{str(e)}")
+
+    def display_image(self, frame):
+        """نمایش عکس در ویجت دوربین"""
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb_frame.shape
+        bytes_per_line = ch * w
+        qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qt_image)
+        scaled = pixmap.scaled(280, 210, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.camera_label.setPixmap(scaled)
+        self.camera_label.setStyleSheet("""
+            QLabel {
+                background-color: #000000;
+                border: 2px solid #9b59b6;
+                border-radius: 8px;
+            }
+        """)
+
+    # ======================== اسکن پلاک ========================
+
     def scan_plate(self):
         """اسکن پلاک از تصویر دوربین"""
         if self.current_frame is None:
-            QMessageBox.warning(self, "⚠️ خطا", "ابتدا دوربین را روشن کنید")
+            QMessageBox.warning(self, "⚠️ خطا", "ابتدا دوربین را روشن کنید یا عکس بارگذاری کنید")
             return
 
-        # نمایش progress
+        if self.image_loaded:
+            self.scan_plate_from_image()
+            return
+
         self.scan_progress.setVisible(True)
         self.scan_progress.setValue(0)
 
-        # شبیه‌سازی اسکن (در نسخه واقعی OCR انجام میشه)
         for i in range(1, 101):
             self.scan_progress.setValue(i)
             QApplication.processEvents()
-            # یه کمی تاخیر برای نمایش
 
-        # تولید پلاک تصادفی برای تست
-        import random
-        letters = ['الف', 'ب', 'پ', 'ت', 'ث', 'ج', 'چ', 'ح', 'خ', 'د', 'س', 'ص', 'ط', 'ع', 'ق', 'ل', 'م', 'ن', 'و', 'ه', 'ی']
+        self._generate_random_plate()
+        self.scan_progress.setVisible(False)
+
+    def scan_plate_from_image(self):
+        """اسکن پلاک از عکس بارگذاری شده با ALPR (حالت تست)"""
+        if self.current_frame is None:
+            QMessageBox.warning(self, "⚠️ خطا", "ابتدا یک عکس بارگذاری کنید")
+            return
+
+        self.scan_progress.setVisible(True)
+        self.scan_progress.setValue(0)
+        QApplication.processEvents()
+
+        try:
+            self.scan_progress.setValue(30)
+            QApplication.processEvents()
+
+            results = self.alpr_engine.process(self.current_frame)
+
+            self.scan_progress.setValue(70)
+            QApplication.processEvents()
+
+            frame_with_boxes = self.current_frame.copy()
+
+            if results:
+                for i, result in enumerate(results):
+                    x, y, w, h = result.bbox
+                    plate_text = result.plate
+                    confidence = result.confidence
+
+                    # رسم کادر سبز
+                    cv2.rectangle(
+                        frame_with_boxes,
+                        (x, y),
+                        (x + w, y + h),
+                        (0, 255, 0),
+                        3
+                    )
+
+                    # نوشتن متن پلاک
+                    cv2.putText(
+                        frame_with_boxes,
+                        f"{plate_text} ({confidence:.0%})",
+                        (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 255, 0),
+                        2
+                    )
+
+                    if i == 0:  # فقط اولین نتیجه
+                        print(f"🔍 plate_text: {plate_text}")
+
+                        # حذف خط تیره و فاصله
+                        clean_plate = plate_text.replace("-", "").replace(" ", "")
+                        print(f"🔍 clean_plate: {clean_plate}")
+
+                        if len(clean_plate) == 8:
+                            part1 = clean_plate[0:2]
+                            letter = clean_plate[2:3]
+                            part2 = clean_plate[3:6]
+                            part3 = clean_plate[6:8]
+
+                            self.part1.setText(part1)
+                            self.letter.setText(letter)
+                            self.part2.setText(part2)
+                            self.part3.setText(part3)
+
+                            self.scan_status.setText(
+                                f"✅ پلاک شناسایی شد: {plate_text} (اطمینان: {confidence:.0%})"
+                            )
+                            self.scan_status.setStyleSheet(
+                                "font-size: 12px; color: #27ae60; font-weight: bold; padding: 5px;"
+                            )
+                            self.save_captured_image(plate_text)
+                        else:
+                            self.scan_status.setText(f"❌ فرمت پلاک نامعتبر: {plate_text}")
+                            self.scan_status.setStyleSheet(
+                                "font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;"
+                            )
+
+                        self.scan_progress.setValue(90)
+                        QApplication.processEvents()
+            else:
+                self.scan_status.setText("❌ هیچ پلاکی تشخیص داده نشد")
+                self.scan_status.setStyleSheet(
+                    "font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;"
+                )
+
+            # نمایش تصویر با کادر
+            self.display_image(frame_with_boxes)
+
+        except Exception as e:
+            self.scan_status.setText(f"❌ خطا در اسکن: {str(e)}")
+            self.scan_status.setStyleSheet(
+                "font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;"
+            )
+            import traceback
+            traceback.print_exc()
+
+        self.scan_progress.setVisible(False)
+
+    def _generate_random_plate(self):
+        """تولید پلاک تصادفی برای تست (فقط در صورت نبود ALPR)"""
+        letters = ['الف', 'ب', 'پ', 'ت', 'ث', 'ج', 'چ', 'ح', 'خ', 'د', 'س', 'ص', 'ط', 'ع', 'ق', 'ل', 'م', 'ن', 'و', 'ه',
+                   'ی']
         rand_letter = random.choice(letters)
-        rand_part1 = f"{random.randint(10,99):02d}"
-        rand_part2 = f"{random.randint(100,999):03d}"
-        rand_part3 = f"{random.randint(10,99):02d}"
+        rand_part1 = f"{random.randint(10, 99):02d}"
+        rand_part2 = f"{random.randint(100, 999):03d}"
+        rand_part3 = f"{random.randint(10, 99):02d}"
 
-        # پر کردن فیلدها
         self.part1.setText(rand_part1)
         self.letter.setText(rand_letter)
         self.part2.setText(rand_part2)
         self.part3.setText(rand_part3)
 
-        self.scan_status.setText(f"✅ پلاک اسکن شد: {rand_part1}{rand_letter}{rand_part2}-{rand_part3}")
+        full_plate = f"{rand_part1}{rand_letter}{rand_part2}-{rand_part3}"
+        self.scan_status.setText(f"✅ پلاک اسکن شد: {full_plate}")
         self.scan_status.setStyleSheet("font-size: 12px; color: #27ae60; font-weight: bold; padding: 5px;")
-
-        self.scan_progress.setVisible(False)
-
-        # ذخیره تصویر
         self.save_captured_image()
 
-    def save_captured_image(self):
-        """ذخیره تصویر گرفته شده"""
+    def save_captured_image(self, plate_text=""):
+        """ذخیره تصویر با نام پلاک"""
         if self.current_frame is not None:
             save_dir = "captured_plates"
             os.makedirs(save_dir, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{save_dir}/entry_{timestamp}.jpg"
+            plate_part = plate_text.replace("/", "_").replace(" ", "") if plate_text else "unknown"
+            filename = f"{save_dir}/entry_{plate_part}_{timestamp}.jpg"
             cv2.imwrite(filename, self.current_frame)
 
-    # ============ عملیات پلاک ============
+    # ======================== عملیات پلاک ========================
 
     def auto_focus(self):
         """فوکوس خودکار و اعتبارسنجی"""
@@ -434,7 +601,6 @@ class EntryWidget(QWidget):
             self.part3.text().strip()
         )
 
-        # اعتبارسنجی
         if not self.part1.text() and not self.letter.text() and not self.part2.text():
             self.validation_label.setText("")
         elif self.current_plate.is_valid:
@@ -456,7 +622,6 @@ class EntryWidget(QWidget):
                 self.validation_label.setText("⚠️ لطفاً همه بخش‌ها را پر کنید")
                 self.validation_label.setStyleSheet("font-size: 13px; color: #f39c12; font-weight: bold;")
 
-        # فوکوس خودکار
         if len(self.part1.text()) == 2:
             self.letter.setFocus()
         elif len(self.letter.text()) == 1:
@@ -510,7 +675,3 @@ class EntryWidget(QWidget):
         """بستن ویجت"""
         self.stop_camera()
         event.accept()
-
-
-# برای processEvents
-from PyQt5.QtWidgets import QApplication
