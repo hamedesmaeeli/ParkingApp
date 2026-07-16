@@ -35,7 +35,7 @@ class EntryWidget(QWidget):
         self.image_loaded = False
 
         # ========== ALPR Engine ==========
-        self.alpr_engine = ALPREngine(mock_mode=True)  # <-- فعال کردن حالت تست
+        self.alpr_engine = ALPREngine(mock_mode=False)  # <-- فعال کردن حالت تست
 
         # =================================
 
