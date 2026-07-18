@@ -1,5 +1,5 @@
 """
-فرم ورود خودرو - با دوربین داخلی و قابلیت بارگذاری عکس + ALPR واقعی
+فرم ورود خودرو - با دوربین داخلی و قابلیت بارگذاری عکس + ALPR
 """
 
 from PyQt5.QtWidgets import (
@@ -14,7 +14,6 @@ from datetime import datetime
 import sys
 import os
 import random
-import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from plate_utils import IranianPlate
@@ -34,10 +33,9 @@ class EntryWidget(QWidget):
         self.current_frame = None
         self.image_loaded = False
 
-        # ========== ALPR Engine ==========
-        self.alpr_engine = ALPREngine(mock_mode=False)  # <-- فعال کردن حالت تست
-
-        # =================================
+        # ===== ALPR Engine =====
+        self.alpr_engine = ALPREngine(mock_mode=False)  # حالت واقعی
+        # ======================
 
         self.init_ui()
 
@@ -136,7 +134,7 @@ class EntryWidget(QWidget):
         """)
         self.scan_btn.clicked.connect(self.scan_plate)
 
-        # دکمه جدید بارگذاری عکس
+        # دکمه بارگذاری عکس
         self.upload_btn = QPushButton("📂 بارگذاری عکس")
         self.upload_btn.setStyleSheet("""
             QPushButton {
@@ -147,7 +145,6 @@ class EntryWidget(QWidget):
         """)
         self.upload_btn.clicked.connect(self.upload_image)
 
-        # اضافه کردن دکمه‌ها به layout
         cam_btn_layout.addWidget(self.start_cam_btn)
         cam_btn_layout.addWidget(self.stop_cam_btn)
         cam_btn_layout.addWidget(self.scan_btn)
@@ -173,6 +170,7 @@ class EntryWidget(QWidget):
         main_row.addWidget(camera_frame)
 
         # ============ بخش فیلدهای پلاک (سمت چپ) ============
+        # ============ بخش فیلدهای پلاک (سمت چپ) ============
         plate_frame = QFrame()
         plate_frame.setStyleSheet("""
             QFrame {
@@ -186,15 +184,16 @@ class EntryWidget(QWidget):
         plate_layout = QVBoxLayout(plate_frame)
         plate_layout.setSpacing(20)
 
-        # عنوان بخش پلاک
         plate_title = QLabel("📋 اطلاعات پلاک")
         plate_title.setAlignment(Qt.AlignCenter)
         plate_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
         plate_layout.addWidget(plate_title)
 
-        # فیلدهای پلاک
-        fields_layout = QHBoxLayout()
-        fields_layout.setSpacing(10)
+        # ===== فیلدهای پلاک با چینش راست‌به‌چپ =====
+        fields_widget = QWidget()
+        fields_widget.setLayoutDirection(Qt.RightToLeft)  # ← راست‌به‌چپ
+        fields_layout = QHBoxLayout(fields_widget)
+        fields_layout.setSpacing(5)
 
         field_style = """
             QLineEdit {
@@ -210,6 +209,8 @@ class EntryWidget(QWidget):
             }
         """
 
+        # ===== فیلدها به ترتیب چپ به راست (برای نمایش راست‌به‌چپ) =====
+        # ۱. دو رقم اول (part1) - سمت راست‌ترین در نمایش
         self.part1 = QLineEdit()
         self.part1.setPlaceholderText("۱۲")
         self.part1.setMaxLength(2)
@@ -221,6 +222,7 @@ class EntryWidget(QWidget):
         sep1.setStyleSheet("font-size: 30px; color: #bdc3c7; font-weight: bold;")
         sep1.setAlignment(Qt.AlignCenter)
 
+        # ۲. حرف پلاک (letter)
         self.letter = QLineEdit()
         self.letter.setPlaceholderText("الف")
         self.letter.setMaxLength(1)
@@ -232,6 +234,7 @@ class EntryWidget(QWidget):
         sep2.setStyleSheet("font-size: 30px; color: #bdc3c7; font-weight: bold;")
         sep2.setAlignment(Qt.AlignCenter)
 
+        # ۳. سه رقم وسط (part2)
         self.part2 = QLineEdit()
         self.part2.setPlaceholderText("۳۴۵")
         self.part2.setMaxLength(3)
@@ -239,6 +242,7 @@ class EntryWidget(QWidget):
         self.part2.setStyleSheet(field_style)
         self.part2.textChanged.connect(self.auto_focus)
 
+        # ۴. کلمه "ایران"
         iran = QLabel("ایران")
         iran.setAlignment(Qt.AlignCenter)
         iran.setStyleSheet("""
@@ -248,12 +252,15 @@ class EntryWidget(QWidget):
             min-width: 55px;
         """)
 
+        # ۵. دو رقم آخر (part3) - سمت چپ‌ترین در نمایش
         self.part3 = QLineEdit()
         self.part3.setPlaceholderText("۱۱")
         self.part3.setMaxLength(2)
         self.part3.setAlignment(Qt.AlignCenter)
         self.part3.setStyleSheet(field_style)
+        self.part3.textChanged.connect(self.auto_focus)
 
+        # ===== اضافه کردن به layout (چپ به راست) =====
         fields_layout.addWidget(self.part1)
         fields_layout.addWidget(sep1)
         fields_layout.addWidget(self.letter)
@@ -261,9 +268,8 @@ class EntryWidget(QWidget):
         fields_layout.addWidget(self.part2)
         fields_layout.addWidget(iran)
         fields_layout.addWidget(self.part3)
-        fields_layout.addStretch()
 
-        plate_layout.addLayout(fields_layout)
+        plate_layout.addWidget(fields_widget)  # ← اضافه کردن ویجت
 
         # پیام اعتبارسنجی
         self.validation_label = QLabel("")
@@ -463,7 +469,7 @@ class EntryWidget(QWidget):
         self.scan_progress.setVisible(False)
 
     def scan_plate_from_image(self):
-        """اسکن پلاک از عکس بارگذاری شده با ALPR (حالت تست)"""
+        """اسکن پلاک با ALPR واقعی"""
         if self.current_frame is None:
             QMessageBox.warning(self, "⚠️ خطا", "ابتدا یک عکس بارگذاری کنید")
             return
@@ -473,6 +479,7 @@ class EntryWidget(QWidget):
         QApplication.processEvents()
 
         try:
+            # ===== پردازش با ALPR =====
             self.scan_progress.setValue(30)
             QApplication.processEvents()
 
@@ -481,75 +488,87 @@ class EntryWidget(QWidget):
             self.scan_progress.setValue(70)
             QApplication.processEvents()
 
+            # ===== کپی تصویر برای رسم (حتی اگر تشخیص کامل نباشد) =====
             frame_with_boxes = self.current_frame.copy()
+            plate_text_display = ""
 
             if results:
-                for i, result in enumerate(results):
-                    x, y, w, h = result.bbox
-                    plate_text = result.plate
-                    confidence = result.confidence
+                result = results[0]
+                plate_text = result.plate
+                confidence = result.confidence
+                x, y, w, h = result.bbox
 
-                    # رسم کادر سبز
-                    cv2.rectangle(
-                        frame_with_boxes,
-                        (x, y),
-                        (x + w, y + h),
-                        (0, 255, 0),
-                        3
+                # ===== ۱. رسم کادر سبز روی تصویر (همیشه) =====
+                cv2.rectangle(frame_with_boxes, (x, y), (x + w, y + h), (0, 255, 0), 3)
+
+                # ===== ۲. اصلاح متن پلاک =====
+                persian_to_english = {
+                    '۰': '0', '۱': '1', '۲': '2', '۳': '3',
+                    '۴': '4', '۵': '5', '۶': '6', '۷': '7',
+                    '۸': '8', '۹': '9'
+                }
+                for p, e in persian_to_english.items():
+                    plate_text = plate_text.replace(p, e)
+
+                plate_text = plate_text.replace(' ', '').replace('-', '')
+
+                import re
+                plate_text = re.sub(r'[^ابپتثجچحخدسصطعقلمنوهی0-9]', '', plate_text)
+
+                print(f"🔍 plate_text اصلاح‌شده: {plate_text}")
+
+                # ===== ۳. نمایش پلاک روی تصویر (همیشه) =====
+                cv2.putText(frame_with_boxes, plate_text, (x, y - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                # ===== ۴. پر کردن فیلدها (اگر فرمت درست باشد) =====
+                if len(plate_text) >= 8:
+                    part1 = plate_text[0:2]
+                    letter = plate_text[2:3]
+                    part2 = plate_text[3:6]
+                    part3 = plate_text[6:8]
+
+                    if (part1.isdigit() and part2.isdigit() and part3.isdigit() and
+                            len(part1) == 2 and len(part2) == 3 and len(part3) == 2 and
+                            letter in IranianPlate.VALID_LETTERS):
+
+                        self.part1.setText(part1)
+                        self.letter.setText(letter)
+                        self.part2.setText(part2)
+                        self.part3.setText(part3)
+
+                        full_plate = f"{part1}{letter}{part2}-{part3}"
+                        self.scan_status.setText(
+                            f"✅ پلاک شناسایی شد: {full_plate} (اطمینان: {confidence:.0%})"
+                        )
+                        self.scan_status.setStyleSheet(
+                            "font-size: 12px; color: #27ae60; font-weight: bold; padding: 5px;"
+                        )
+                        plate_text_display = full_plate
+                    else:
+                        self.scan_status.setText(f"⚠️ فرمت نامعتبر: {plate_text}")
+                        self.scan_status.setStyleSheet(
+                            "font-size: 12px; color: #f39c12; font-weight: bold; padding: 5px;"
+                        )
+                        plate_text_display = plate_text
+                else:
+                    self.scan_status.setText(f"⚠️ تشخیص داده شد: {plate_text}")
+                    self.scan_status.setStyleSheet(
+                        "font-size: 12px; color: #f39c12; font-weight: bold; padding: 5px;"
                     )
-
-                    # نوشتن متن پلاک
-                    cv2.putText(
-                        frame_with_boxes,
-                        f"{plate_text} ({confidence:.0%})",
-                        (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 255, 0),
-                        2
-                    )
-
-                    if i == 0:  # فقط اولین نتیجه
-                        print(f"🔍 plate_text: {plate_text}")
-
-                        # حذف خط تیره و فاصله
-                        clean_plate = plate_text.replace("-", "").replace(" ", "")
-                        print(f"🔍 clean_plate: {clean_plate}")
-
-                        if len(clean_plate) == 8:
-                            part1 = clean_plate[0:2]
-                            letter = clean_plate[2:3]
-                            part2 = clean_plate[3:6]
-                            part3 = clean_plate[6:8]
-
-                            self.part1.setText(part1)
-                            self.letter.setText(letter)
-                            self.part2.setText(part2)
-                            self.part3.setText(part3)
-
-                            self.scan_status.setText(
-                                f"✅ پلاک شناسایی شد: {plate_text} (اطمینان: {confidence:.0%})"
-                            )
-                            self.scan_status.setStyleSheet(
-                                "font-size: 12px; color: #27ae60; font-weight: bold; padding: 5px;"
-                            )
-                            self.save_captured_image(plate_text)
-                        else:
-                            self.scan_status.setText(f"❌ فرمت پلاک نامعتبر: {plate_text}")
-                            self.scan_status.setStyleSheet(
-                                "font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;"
-                            )
-
-                        self.scan_progress.setValue(90)
-                        QApplication.processEvents()
+                    plate_text_display = plate_text
             else:
                 self.scan_status.setText("❌ هیچ پلاکی تشخیص داده نشد")
                 self.scan_status.setStyleSheet(
                     "font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;"
                 )
 
-            # نمایش تصویر با کادر
+            # ===== ۵. نمایش تصویر با کادر (همیشه) =====
             self.display_image(frame_with_boxes)
+
+            # ===== ۶. ذخیره تصویر =====
+            if results:
+                self.save_captured_image(plate_text_display)
 
         except Exception as e:
             self.scan_status.setText(f"❌ خطا در اسکن: {str(e)}")
@@ -560,11 +579,9 @@ class EntryWidget(QWidget):
             traceback.print_exc()
 
         self.scan_progress.setVisible(False)
-
     def _generate_random_plate(self):
-        """تولید پلاک تصادفی برای تست (فقط در صورت نبود ALPR)"""
-        letters = ['الف', 'ب', 'پ', 'ت', 'ث', 'ج', 'چ', 'ح', 'خ', 'د', 'س', 'ص', 'ط', 'ع', 'ق', 'ل', 'م', 'ن', 'و', 'ه',
-                   'ی']
+        """تولید پلاک تصادفی برای تست"""
+        letters = ['الف', 'ب', 'پ', 'ت', 'ث', 'ج', 'چ', 'ح', 'خ', 'د', 'س', 'ص', 'ط', 'ع', 'ق', 'ل', 'م', 'ن', 'و', 'ه', 'ی']
         rand_letter = random.choice(letters)
         rand_part1 = f"{random.randint(10, 99):02d}"
         rand_part2 = f"{random.randint(100, 999):03d}"

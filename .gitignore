@@ -9,3 +9,7 @@ pyvenv.cfg
 
 # pip: package installer for Python
 pip-selfcheck.json
+
+captured_plates/
+images/
+screenshots/

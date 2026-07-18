@@ -1,15 +1,15 @@
-exit
 """
 تست مدل تخصصی تشخیص پلاک ایران
 YOLOv8m_Iran_license_plate_detection
-با استفاده از عکس پیش‌فرض در مسیر پروژه
+با ذخیره تصویر خروجی (بدون نمایش)
 """
 
 from ultralytics import YOLO
 import cv2
 import os
 
-def test_iran_plate_model(image_name="test_pelak1.jpg"):
+
+def test_iran_plate_model(image_name="test_pelak3.jpg"):
     """
     تست مدل تشخیص پلاک ایران روی یک تصویر مشخص
 
@@ -48,28 +48,36 @@ def test_iran_plate_model(image_name="test_pelak1.jpg"):
         return
 
     img = cv2.imread(image_path)
+    if img is None:
+        print("❌ خطا در خواندن تصویر!")
+        return
+
     print(f"✅ تصویر با سایز {img.shape[1]}x{img.shape[0]} بارگذاری شد.")
 
     # ===== ۳. تشخیص پلاک با مدل =====
     print("🔄 در حال تشخیص پلاک...")
     results = model(image_path)
 
-    # ===== ۴. نمایش نتایج =====
+    # ===== ۴. استخراج نتایج =====
     print("\n📊 نتایج تشخیص:")
     print("-" * 50)
 
     img_with_boxes = img.copy()
     detected_count = 0
+    detections = []  # برای ذخیره مختصات
 
     for r in results:
         boxes = r.boxes
         if boxes is not None:
             for box in boxes:
                 x_center, y_center, w, h = box.xywh[0].cpu().numpy().astype(int)
-                x = int(x_center - w/2)
-                y = int(y_center - h/2)
+                x = int(x_center - w / 2)
+                y = int(y_center - h / 2)
                 confidence = float(box.conf[0].cpu().numpy())
                 detected_count += 1
+
+                # ذخیره مختصات
+                detections.append((x, y, w, h))
 
                 # اطلاعات پلاک
                 print(f"🔹 پلاک {detected_count}:")
@@ -78,29 +86,27 @@ def test_iran_plate_model(image_name="test_pelak1.jpg"):
                 print(f"   📊 اطمینان: {confidence:.2%}")
 
                 # رسم کادر سبز
-                cv2.rectangle(img_with_boxes, (x, y), (x+w, y+h), (0, 255, 0), 3)
+                cv2.rectangle(img_with_boxes, (x, y), (x + w, y + h), (0, 255, 0), 3)
                 cv2.putText(img_with_boxes, f"Plate {detected_count}: {confidence:.0%}",
-                           (x, y-10), cv2.FONT_HERSHEY_SIMPLEX,
-                           0.6, (0, 255, 0), 2)
+                            (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6, (0, 255, 0), 2)
 
     if detected_count == 0:
         print("❌ هیچ پلاکی تشخیص داده نشد!")
     else:
         print(f"\n✅ {detected_count} پلاک تشخیص داده شد.")
 
-    # ===== ۵. نمایش تصویر =====
-    print("\n📸 نمایش تصویر با کادرهای تشخیص داده شده...")
-    cv2.imshow("Iranian Plate Detection - YOLOv8m", img_with_boxes)
-    print("برای بستن تصویر، هر کلیدی را بزنید...")
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-    # ===== ۶. ذخیره تصویر =====
+    # ===== ۵. ذخیره تصویر (بدون نمایش) =====
     cv2.imwrite(output_path, img_with_boxes)
     print(f"✅ تصویر نهایی در {output_path} ذخیره شد.")
 
+    # ===== ۶. بازگرداندن مختصات برای استفاده در OCR =====
+    if detected_count > 0:
+        print(f"\n📌 مختصات پلاک برای OCR: {detections[0]}")
+
     print("\n🎉 تست کامل شد!")
+    return detections if detected_count > 0 else None
+
 
 if __name__ == "__main__":
-    # ===== نام عکس را اینجا تغییر دهید =====
-    test_iran_plate_model("test_pelak3.jpg")  # ← نام عکس خود را قرار دهید
+    test_iran_plate_model("test_pelak_crop1.jpg")

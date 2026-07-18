@@ -1,23 +1,18 @@
 """
-ALPR Engine - Core module for license plate recognition.
-Orchestrates detection, OCR, and validation.
+ALPR Engine - Orchestrates YOLO detection and HezarAI OCR.
 """
 
-from typing import List
-import random
+import cv2
 import numpy as np
-
-from .detector import PlateDetector
-from .ocr import PlateOCR
+from .yolo_detector import YOLODetector
+from .ocr_hezar import HezarOCR
 from .validator import PlateValidator
 from .models import PlateResult
-from .yolo_detector import YOLODetector
 
 
 class ALPREngine:
     """
-    Main engine for Automatic License Plate Recognition.
-    Handles the complete pipeline: detection -> OCR -> validation.
+    Main ALPR engine combining YOLO for detection and HezarAI for OCR.
     """
 
     def __init__(self, mock_mode=False):
@@ -25,115 +20,123 @@ class ALPREngine:
         Initialize the ALPR engine.
 
         Args:
-            mock_mode (bool): If True, uses mock data for testing without real detection.
+            mock_mode (bool): If True, use mock detector and OCR for testing.
         """
         self.mock_mode = mock_mode
 
-        # Initialize components
-        self.ocr = PlateOCR()
-        self.validator = PlateValidator()
-
-        # ===== Select detector based on mode =====
+        # ===== انتخاب کامپوننت‌ها =====
         if mock_mode:
-            # Use OpenCV contour detector for mock mode (no external dependencies)
+            # حالت تست: استفاده از Mock
+            from .detector import PlateDetector
+            from .ocr import PlateOCR as MockOCR
             self.detector = PlateDetector()
-            print("🧪 ALPR Engine: Running in MOCK mode (using OpenCV contours)")
+            self.ocr = MockOCR()
+            print("🧪 ALPR Engine: MOCK mode enabled")
         else:
-            # Use YOLO detector for real detection
-            self.detector = YOLODetector()
-            print("🤖 ALPR Engine: Running in REAL mode (using YOLO)")
-        # =========================================
+            # حالت واقعی: YOLO + HezarAI
+            self.detector = YOLODetector()  # تشخیص کادر
+            self.ocr = HezarOCR()           # خواندن متن
+            print("🤖 ALPR Engine: REAL mode (YOLO + HezarAI)")
+        # =================================
 
-        self.letters = [
-            'الف', 'ب', 'پ', 'ت', 'ث', 'ج',
-            'چ', 'ح', 'خ', 'د', 'س', 'ص',
-            'ط', 'ع', 'ق', 'ل', 'م',
-            'ن', 'و', 'ه', 'ی'
-        ]
+        self.validator = PlateValidator()
+        print("✅ ALPR Engine initialized successfully")
 
     def process(self, frame):
         """
-        Process a single frame and extract license plate information.
+        Process a frame: detect plates, crop, OCR, validate.
 
         Args:
-            frame (np.ndarray): Input image in BGR format.
+            frame (np.ndarray): Input image (BGR format).
 
         Returns:
-            List[PlateResult]: List of detected plates with their information.
+            List[PlateResult]: Detection results with plate text and metadata.
         """
         results = []
 
-        # ===== MOCK MODE: Generate fake plates =====
-        if self.mock_mode:
-            print("🧪 [MOCK] ALPR در حالت تست اجرا می‌شود")
-            h, w = frame.shape[:2]
-
-            # Generate a mock bounding box in the center of the image
-            x = int(w * 0.25)
-            y = int(h * 0.35)
-            box_w = int(w * 0.5)
-            box_h = int(h * 0.15)
-
-            # Generate a random Persian plate
-            mock_plate = f"{random.randint(10, 99):02d}{random.choice(self.letters)}{random.randint(100, 999):03d}-{random.randint(10, 99):02d}"
-
-            # Create a PlateResult object
-            results.append(
-                PlateResult(
-                    plate=mock_plate,
-                    confidence=0.95,
-                    bbox=(x, y, box_w, box_h),
-                    image=frame[y:y + box_h, x:x + box_w]
-                )
-            )
-
-            print(f"   📝 پلاک Mock: {mock_plate}")
-            print(f"   📦 کادر Mock: ({x}, {y}, {box_w}, {box_h})")
+        if frame is None or frame.size == 0:
+            print("⚠️ Empty frame received")
             return results
-        # ==========================================
 
-        # ===== REAL MODE: Use YOLO detector =====
-        # Step 1: Detect plate candidates
-        candidates = self.detector.detect(frame)
-        print(f"📌 تعداد کاندیداها: {len(candidates)}")
+        try:
+            # ===== مرحله ۱: تشخیص کادر با YOLO =====
+            candidates = self.detector.detect(frame)
+            print(f"📌 YOLO found {len(candidates)} candidate(s)")
 
-        # Step 2: Process each candidate
-        for x, y, w, h in candidates:
-            # Crop the plate region
-            crop = frame[y:y + h, x:x + w]
-            if crop.size == 0:
-                print("   ❌ crop خالی است")
-                continue
+            if not candidates:
+                print("⚠️ No plate candidates found")
+                return results
 
-            # Step 3: OCR on the cropped region
-            plate = self.ocr.read(crop)
-            print(f"   📝 خروجی OCR: {plate}")
+            # ===== مرحله ۲: استخراج Crop با Padding =====
+            crops = self.detector.extract_crops(frame, candidates, padding_ratio=0.4)
+            print(f"📦 Extracted {len(crops)} crop(s)")
 
-            # Step 4: Validate the plate
-            valid = self.validator.validate(plate)
-            print(f"   ✅ اعتبارسنجی: {valid}")
+            # ===== مرحله ۳: OCR روی هر Crop =====
+            for crop_info in crops:
+                x, y, w, h = crop_info['bbox']
+                crop = crop_info['crop']
+                confidence = crop_info['confidence']
 
-            # Step 5: Create result object
-            results.append(
-                PlateResult(
-                    plate=plate,
-                    confidence=0.85,  # Default confidence for now
-                    bbox=(x, y, w, h),
-                    image=crop
-                )
-            )
+                # OCR با HezarAI
+                plate_text = self.ocr.read(crop)
 
-        print(f"📌 تعداد نتایج نهایی: {len(results)}")
+                if not plate_text:
+                    print(f"⚠️ No text detected for crop at ({x}, {y})")
+                    continue
+
+                # اعتبارسنجی
+                if self.validator.validate(plate_text):
+                    # ایجاد نتیجه
+                    result = PlateResult(
+                        plate=plate_text,
+                        confidence=confidence,
+                        bbox=(x, y, w, h),
+                        image=crop
+                    )
+                    results.append(result)
+                    print(f"✅ Valid plate: '{plate_text}' (conf={confidence:.2f})")
+                else:
+                    print(f"❌ Invalid plate: '{plate_text}'")
+
+        except Exception as e:
+            print(f"❌ Error in ALPR process: {e}")
+            import traceback
+            traceback.print_exc()
+
+        print(f"📌 Final results: {len(results)} plate(s)")
         return results
 
-    def set_detector_confidence(self, confidence: float):
+    def process_with_visualization(self, frame):
         """
-        Set the confidence threshold for the detector.
+        Process a frame and return results with visualization.
 
         Args:
-            confidence (float): Threshold between 0.0 and 1.0.
+            frame (np.ndarray): Input image (BGR format).
+
+        Returns:
+            tuple: (List[PlateResult], np.ndarray) results and visualized image.
         """
-        if hasattr(self.detector, 'set_confidence'):
-            self.detector.set_confidence(confidence)
+        results = self.process(frame)
+
+        # رسم کادرها روی تصویر
+        vis_frame = frame.copy()
+        for result in results:
+            x, y, w, h = result.bbox
+            cv2.rectangle(vis_frame, (x, y), (x+w, y+h), (0, 255, 0), 3)
+            cv2.putText(vis_frame, result.plate, (x, y-10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+        return results, vis_frame
+
+    def set_confidence_threshold(self, threshold):
+        """
+        Set confidence threshold for YOLO detector.
+
+        Args:
+            threshold (float): Value between 0.0 and 1.0.
+        """
+        if hasattr(self.detector, 'confidence_threshold'):
+            self.detector.confidence_threshold = threshold
+            print(f"✅ Confidence threshold set to {threshold}")
         else:
             print("⚠️ Current detector doesn't support confidence threshold")
