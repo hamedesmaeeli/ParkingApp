@@ -18,12 +18,19 @@ from ui.active_tab import ActiveTab
 from ui.history_tab import HistoryTab
 from ui.settings_tab import SettingsTab
 from ui.camera_widget import CameraWidget
-
-
+from ui.cards_tab import CardsTab  # اضافه کنید
+from ui.unified_widget import UnifiedWidget
+from rfid import RFIDIntegration
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.db = ParkingDatabase()
+        # ===== RFID واحد (Singleton) =====
+        # اگر قبلاً import نشده، اضافه کنید
+        self.rfid = RFIDIntegration()
+
+        self.rfid.start()
+        # =================================
         self.VERSION = "3.0.0"
         self.init_ui()
         self.setup_timers()
@@ -38,13 +45,13 @@ class MainWindow(QMainWindow):
             QMainWindow { 
                 background-color: #f5f6fa; 
             }
-            
+
             QTabWidget::pane { 
                 border: 1px solid #ddd; 
                 background-color: white; 
                 border-radius: 5px; 
             }
-            
+
             QTabBar::tab {
                 background-color: #2c3e50;
                 color: white;
@@ -54,43 +61,21 @@ class MainWindow(QMainWindow):
                 font-weight: bold;
                 min-width: 120px;
             }
-            
+
             QTabBar::tab:selected {
                 background-color: #3498db;
                 color: white;
             }
-            
+
             QTabBar::tab:hover:!selected {
                 background-color: #34495e;
             }
-            
+
             QScrollArea { 
                 border: none; 
                 background-color: transparent; 
             }
-            
-            QScrollBar:vertical {
-                border: none;
-                background: #f0f0f0;
-                width: 12px;
-                border-radius: 6px;
-            }
-            
-            QScrollBar::handle:vertical {
-                background: #c0c0c0;
-                border-radius: 6px;
-                min-height: 30px;
-            }
-            
-            QScrollBar::handle:vertical:hover {
-                background: #a0a0a0;
-            }
-            
-            QScrollBar::add-line:vertical, 
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            
+
             QStatusBar {
                 background-color: #2c3e50;
                 color: white;
@@ -114,24 +99,15 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.tab_widget.setDocumentMode(True)
 
-        # تب ۱: ورود
-        self.entry_widget = EntryWidget(self.db)
-        entry_scroll = QScrollArea()
-        entry_scroll.setWidgetResizable(True)
-        entry_scroll.setWidget(self.entry_widget)
-        entry_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.tab_widget.addTab(entry_scroll, "  🚗  ورود خودرو  ")
+        # ===== تب ۱: ورود/خروج یکپارچه (جایگزین ورود و خروج) =====
+        self.unified_widget = UnifiedWidget(self.db, self.rfid)
+        unified_scroll = QScrollArea()
+        unified_scroll.setWidgetResizable(True)
+        unified_scroll.setWidget(self.unified_widget)
+        unified_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tab_widget.addTab(unified_scroll, "  🚦  ورود/خروج یکپارچه  ")
 
-        # تب ۲: خروج
-        self.exit_widget = ExitWidget(self.db)
-        self.exit_widget.car_exited.connect(self.on_car_event)
-        exit_scroll = QScrollArea()
-        exit_scroll.setWidgetResizable(True)
-        exit_scroll.setWidget(self.exit_widget)
-        exit_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.tab_widget.addTab(exit_scroll, "  🚙  خروج خودرو  ")
-
-        # تب ۳: خودروهای حاضر
+        # ===== تب ۲: خودروهای حاضر =====
         self.active_tab = ActiveTab(self.db)
         active_scroll = QScrollArea()
         active_scroll.setWidgetResizable(True)
@@ -139,7 +115,7 @@ class MainWindow(QMainWindow):
         active_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.tab_widget.addTab(active_scroll, "  🅿️  خودروهای حاضر  ")
 
-        # تب ۴: تاریخچه
+        # ===== تب ۳: تاریخچه =====
         self.history_tab = HistoryTab(self.db)
         history_scroll = QScrollArea()
         history_scroll.setWidgetResizable(True)
@@ -147,9 +123,15 @@ class MainWindow(QMainWindow):
         history_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.tab_widget.addTab(history_scroll, "  📊  تاریخچه  ")
 
+        # ===== تب ۴: مدیریت کارت‌ها =====
+        self.cards_tab = CardsTab(self.db, self.rfid)
+        cards_scroll = QScrollArea()
+        cards_scroll.setWidgetResizable(True)
+        cards_scroll.setWidget(self.cards_tab)
+        cards_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tab_widget.addTab(cards_scroll, "  🎫  مدیریت کارت‌ها  ")
 
-
-        # تب ۶: تنظیمات
+        # ===== تب ۵: تنظیمات =====
         self.settings_tab = SettingsTab(self.db)
         self.settings_tab.settings_changed.connect(self.on_settings_changed)
         settings_scroll = QScrollArea()
@@ -307,7 +289,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'active_tab'):
             self.active_tab.refresh_data()
 
-
+    def on_card_changed(self):
+        """وقتی کارت‌ها تغییر می‌کنند"""
+        self.update_status()  # بروزرسانی آمار
     def on_settings_changed(self):
         """تغییر تنظیمات"""
         self.update_status()

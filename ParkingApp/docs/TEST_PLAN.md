@@ -1,107 +1,95 @@
-# Test Plan
+# Test Plan - ParkingSmart
+
+**Version:** 1.0.0  
+**Last Updated:** 2026-07-22
 
 ---
 
-# Sprint 1
+## Sprint 4 — Parking Logic with Card System
 
-## Test 1
+### Test 4.1 — Card Management 🎫
+- [ ] ایجاد کارت‌های اولیه (۱۰۰ کارت)
+- [ ] تغییر وضعیت کارت به 'in_use'
+- [ ] تغییر وضعیت کارت به 'active'
+- [ ] غیرفعال‌سازی کارت
+- [ ] بازیابی کارت غیرفعال
 
-Run Project
+### Test 4.2 — Entry with Card 🚗
+- [ ] ورود خودرو با کارت معتبر
+- [ ] ورود خودرو با کارت نامعتبر
+- [ ] ورود تکراری خودرو (خطا)
+- [ ] ورود در پارکینگ پر (خطا)
+- [ ] ورود دستی پلاک (در صورت خرابی دوربین)
 
-Expected
+### Test 4.3 — Exit with Card 🚙
+- [ ] خروج خودرو با کارت معتبر
+- [ ] خروج با کارت نامعتبر (خطا)
+- [ ] خروج با کارت مربوط به خودروی دیگر (خطا)
+- [ ] محاسبه صحیح هزینه
+- [ ] خروج دستی (در صورت گم شدن کارت)
 
-Application starts successfully.
+### Test 4.4 — UI Updates 🖥️
+- [ ] نمایش وضعیت کارت‌ها در EntryWidget
+- [ ] نمایش وضعیت کارت‌ها در ExitWidget
+- [ ] نمایش پیام‌های موفقیت/خطا
 
----
+### Test 4.5 — Error Handling ⚠️
+- [ ] کارت نامعتبر
+- [ ] کارت گمشده
+- [ ] خرابی دوربین
+- [ ] خرابی کارت‌خوان
 
-## Test 2
-
-Camera
-
-Expected
-
-Live camera image displayed.
-
----
-
-## Test 3
-
-Plate Detection
-
-Expected
-
-No crash.
-
----
-
-## Test 4
-
-Database
-
-Expected
-
-SQLite opens successfully.
-
----
-
-# Sprint 2
-
-## Test YOLO
-
-- Day
-- Night
-- Rain
+### Test 4.6 — Integration 🧩
+- [ ] سناریوی کامل: ورود → حضور در پارکینگ → خروج
+- [ ] سناریوی چند خودرو همزمان
+- [ ] گزارش‌گیری از تاریخچه
 
 ---
 
-# Sprint 3
+## Sprint 3 — OCR with HezarAI ✅
 
-OCR
-
-Iran Plate
-
-Confidence > 90%
-
----
-
-# Sprint 4
-
-Vehicle Entry
-
-Duplicate Plate
-
-Expected
-
-No duplicate registration.
+### Test 3.1 — OCR Accuracy
+- [ ] تشخیص پلاک روی تصاویر با نور خوب
+- [ ] تشخیص پلاک روی تصاویر با نور کم
+- [ ] تشخیص پلاک روی تصاویر با زاویه
+- [ ] تشخیص پلاک روی تصاویر با نویز
 
 ---
 
-# Sprint 5
+## Sprint 2 — Plate Detection with YOLO ✅
 
-Vehicle Exit
-
-Fee Calculation
-
-Expected
-
-Correct duration.
+### Test 2.1 — Detection Accuracy
+- [ ] تشخیص پلاک در روز
+- [ ] تشخیص پلاک در شب
+- [ ] تشخیص پلاک در باران
+- [ ] تشخیص چند پلاک همزمان
 
 ---
 
-# Regression Tests
+## Sprint 1 — Foundation ✅
 
-Application Start
+### Test 1.1 — Application Start
+- [ ] برنامه بدون خطا اجرا شود.
+- [ ] پنجره اصلی نمایش داده شود.
 
-Camera
+### Test 1.2 — Camera
+- [ ] دوربین تصویر نمایش دهد.
+- [ ] دوربین شروع و توقف کند.
 
-Detection
+### Test 1.3 — Database
+- [ ] SQLite به‌درستی باز شود.
+- [ ] داده‌ها ذخیره و بازیابی شوند.
 
-OCR
+---
 
-Database
+## Regression Tests
 
-Reports
-
-Backup
-
-Restore
+- [ ] Application Start
+- [ ] Camera
+- [ ] Detection (YOLO)
+- [ ] OCR (HezarAI)
+- [ ] Database
+- [ ] Entry with Card
+- [ ] Exit with Card
+- [ ] Reports
+- [ ] Backup & Restore

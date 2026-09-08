@@ -4,70 +4,121 @@ All notable changes to this project will be documented here.
 
 ---
 
-## Sprint 1 - Foundation & ALPR Architecture
+## Sprint 4 — Parking Logic with Card System 🚧
 
-### Step 1.1 ✅
-- ایجاد Package جدید alpr
-- ایجاد ALPREngine
-- اتصال اولیه CameraWidget به ALPREngine
+### Step 4.1 — Card Management 🎫
+- [ ] ایجاد جدول `cards` در دیتابیس
+- [ ] پیاده‌سازی متدهای مدیریت کارت
+- [ ] ایجاد کارت‌های اولیه (۱۰۰ کارت فعال)
 
-### Step 1.2 ✅
-- ایجاد models.py
-- ایجاد PlateResult
-- استفاده از Type Hint
+### Step 4.2 — Entry with Card 🚗
+- [ ] خواندن کارت توسط کارت‌خوان ورودی
+- [ ] رزرو کارت (تغییر وضعیت به 'in_use')
+- [ ] تشخیص پلاک توسط دوربین (ALPR)
+- [ ] ثبت ورود در دیتابیس (ارتباط کارت و پلاک)
+- [ ] تحویل کارت به راننده
 
-### Step 1.3 ✅
-- ایجاد detector.py
-- ایجاد ocr.py
-- ایجاد validator.py
-- ایجاد tracker.py
+### Step 4.3 — Exit with Card 🚙
+- [ ] دریافت کارت از راننده
+- [ ] خواندن کارت توسط کارت‌خوان خروجی
+- [ ] اعتبارسنجی کارت
+- [ ] محاسبه مدت زمان و هزینه
+- [ ] ثبت خروج و آزادسازی کارت
 
-### Step 1.4 ✅
-- Refactor CameraWidget
-- انتقال منطق پردازش تصویر
-- استفاده از ALPREngine
+### Step 4.4 — UI Updates 🖥️
+- [ ] به‌روزرسانی EntryWidget برای کارت‌خوان ورودی
+- [ ] به‌روزرسانی ExitWidget برای کارت‌خوان خروجی
+- [ ] اضافه کردن وضعیت کارت‌ها در UI
 
-### Step 1.5 ✅
-- انتقال Contour Detection به detector.py
-- استفاده از PlateResult در سراسر ALPR
-
-### Step 1.6 ✅
-- افزودن Logging (پایه)
-- مدیریت خطا (Exception Handling)
-
-### Step 1.7 ✅
-- طراحی Interface برای Detector و OCR
-- آماده‌سازی config.yaml
-
-### Step 1.8 ✅ (NEW)
-- اضافه کردن حالت Mock به ALPREngine برای تست بدون نیاز به تشخیص واقعی
-- یکپارچه‌سازی ALPREngine با EntryWidget
-- اضافه کردن رسم کادر (Bounding Box) روی تصاویر بارگذاری شده
-- رفع مشکل پر کردن فیلدهای پلاک از PlateResult
-- تست کامل زنجیره: بارگذاری عکس → تشخیص → نمایش کادر → پر کردن فیلدها
-- حذف تب تکراری دوربین از main_window
+### Step 4.5 — Error Handling ⚠️
+- [ ] مدیریت کارت نامعتبر
+- [ ] مدیریت کارت گمشده
+- [ ] ورود دستی پلاک (در صورت خرابی دوربین)
+- [ ] خروج دستی (در صورت خرابی کارت‌خوان)
 
 ---
 
-## Sprint 2 - Plate Detection (YOLO) - ⏳ در انتظار شروع
+## Sprint 3 — OCR with HezarAI ✅ (Completed)
 
-### Step 2.1 ⬜
-- [ ] نصب Ultralytics
+### Step 3.1 ✅
+- [x] نصب HezarAI
 
-### Step 2.2 ⬜
-- [ ] بارگذاری مدل YOLO
+### Step 3.2 ✅
+- [x] بارگذاری مدل HezarAI
 
-### Step 2.3 ⬜
-- [ ] تشخیص پلاک با YOLO
+### Step 3.3 ✅
+- [x] خواندن متن پلاک
 
-### Step 2.4 ⬜
-- [ ] Crop Plate
+### Step 3.4 ✅
+- [x] اعتبارسنجی خروجی
 
-### Step 2.5 ⬜
-- [ ] Multi Plate Detection
+### Step 3.5 ✅
+- [x] اصلاح متن (Post-processing)
 
-### Step 2.6 ⬜
-- [ ] نمایش Bounding Box
+### Step 3.6 ✅
+- [x] Confidence Score
 
-### Step 2.7 ⬜
-- [ ] Benchmark روی CPU
+### Step 3.7 ✅
+- [x] یکپارچه‌سازی با EntryWidget
+
+---
+
+## Sprint 2 — Plate Detection with YOLO ✅ (Completed)
+
+### Step 2.1 ✅
+- [x] نصب Ultralytics
+
+### Step 2.2 ✅
+- [x] بارگذاری مدل YOLO
+
+### Step 2.3 ✅
+- [x] تشخیص پلاک با YOLO
+
+### Step 2.4 ✅
+- [x] Crop Plate
+
+### Step 2.5 ✅
+- [x] Multi Plate Detection
+
+### Step 2.6 ✅
+- [x] نمایش Bounding Box
+
+### Step 2.7 ✅
+- [x] Benchmark روی CPU
+
+---
+
+## Sprint 1 — Foundation & ALPR Architecture ✅ (Completed)
+
+### Step 1.1 ✅
+- [x] ایجاد Package جدید alpr
+- [x] ایجاد ALPREngine
+- [x] اتصال اولیه CameraWidget به ALPREngine
+
+### Step 1.2 ✅
+- [x] ایجاد models.py
+- [x] ایجاد PlateResult
+
+### Step 1.3 ✅
+- [x] ایجاد detector.py
+- [x] ایجاد ocr.py
+- [x] ایجاد validator.py
+- [x] ایجاد tracker.py
+
+### Step 1.4 ✅
+- [x] Refactor CameraWidget
+
+### Step 1.5 ✅
+- [x] انتقال Contour Detection به detector.py
+
+### Step 1.6 ✅
+- [x] logging
+- [x] Exception Handling
+
+### Step 1.7 ✅
+- [x] Interface Detector
+- [x] Interface OCR
+
+### Step 1.8 ✅
+- [x] اضافه کردن Mock Mode به ALPREngine
+- [x] یکپارچه‌سازی با EntryWidget

@@ -1,6 +1,7 @@
 """
-فرم خروج خودرو - نسخه اسکرول‌دار
+فرم خروج خودرو - نسخه اسکرول‌دار با پشتیبانی RFID
 """
+
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
@@ -14,16 +15,25 @@ import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from plate_utils import IranianPlate
+from rfid import RFIDIntegration  # اضافه کنید
 
 
 class ExitWidget(QWidget):
     car_exited = pyqtSignal(dict)
 
-    def __init__(self, database, operator_name="admin"):
+    def __init__(self, database, rfid, operator_name="admin"):
+
         super().__init__()
         self.db = database
         self.operator_name = operator_name
         self.current_plate = None
+        self.current_card = None
+
+        # ===== RFID Integration =====
+        self.rfid = rfid
+        self.rfid.card_scanned.connect(self.on_rfid_card_scanned)
+        # ============================
+
         self.init_ui()
         self.load_active_cars()
 
@@ -99,9 +109,15 @@ class ExitWidget(QWidget):
 
         search_layout.addWidget(self.search_input)
         search_layout.addWidget(search_btn)
-
         search_group.setLayout(search_layout)
         layout.addWidget(search_group)
+
+        # ============ وضعیت کارت RFID ============
+        rfid_status_layout = QHBoxLayout()
+        self.rfid_status_label = QLabel("📡 وضعیت RFID: در حال خواندن...")
+        self.rfid_status_label.setStyleSheet("font-size: 12px; color: #7f8c8d; padding: 5px;")
+        rfid_status_layout.addWidget(self.rfid_status_label)
+        layout.addLayout(rfid_status_layout)
 
         # ============ اطلاعات خروج ============
         info_group = QGroupBox("📋 اطلاعات خروج")
@@ -197,9 +213,15 @@ class ExitWidget(QWidget):
         """)
         self.cost_label.setAlignment(Qt.AlignCenter)
 
+        # وضعیت اسکن
+        self.scan_status = QLabel("")
+        self.scan_status.setAlignment(Qt.AlignCenter)
+        self.scan_status.setStyleSheet("font-size: 12px; padding: 5px;")
+
         details_layout.addWidget(self.entry_time_label)
         details_layout.addWidget(self.duration_label)
         details_layout.addWidget(self.cost_label)
+        details_layout.addWidget(self.scan_status)
 
         info_layout.addWidget(details_frame)
 
@@ -297,7 +319,6 @@ class ExitWidget(QWidget):
         list_group.setLayout(list_layout)
         layout.addWidget(list_group)
 
-        # فضای خالی
         spacer = QWidget()
         spacer.setMinimumHeight(50)
         layout.addWidget(spacer)
@@ -312,7 +333,7 @@ class ExitWidget(QWidget):
                 self.active_table.insertRow(i)
                 plate = IranianPlate.from_full_plate(car['plate_number'])
 
-                self.active_table.setItem(i, 0, QTableWidgetItem(plate.display_format))
+                self.active_table.setItem(i, 0, QTableWidgetItem(plate.full_plate))
                 self.active_table.setItem(i, 1, QTableWidgetItem(plate.type_display))
                 self.active_table.setItem(i, 2, QTableWidgetItem(
                     datetime.fromisoformat(car['entry_time']).strftime('%H:%M')
@@ -341,27 +362,37 @@ class ExitWidget(QWidget):
         """کلیک روی جدول"""
         row = item.row()
         plate_text = self.active_table.item(row, 0).text()
-        # استخراج پلاک از متن نمایشی
-        parts = plate_text.split('|')
-        if parts:
-            self.search_input.setText(parts[0].strip())
-            self.search_plate()
+        self.search_input.setText(plate_text)
+        self.search_plate()
+
+    def find_vehicle_by_plate(self, plate):
+        """پیدا کردن خودرو بر اساس پلاک و نمایش اطلاعات"""
+        try:
+            results = self.db.search_plate(plate)
+            if results['active']:
+                car = results['active'][0]
+                self.show_car_info(car)
+                self.scan_status.setText(f"✅ خودرو با پلاک {plate} یافت شد")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #27ae60; font-weight: bold; padding: 5px;")
+            else:
+                self.scan_status.setText(f"❌ خودرو با پلاک {plate} در پارکینگ نیست")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;")
+        except Exception as e:
+            self.scan_status.setText(f"❌ خطا: {str(e)}")
+            self.scan_status.setStyleSheet("font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;")
 
     def show_car_info(self, car):
         """نمایش اطلاعات خودرو"""
         plate = IranianPlate.from_full_plate(car['plate_number'])
 
-        # نمایش پلاک
         self.exit_part1.setText(plate.part1)
         self.exit_letter.setText(plate.letter)
         self.exit_part2.setText(plate.part2)
         self.exit_part3.setText(plate.part3 if plate.part3 else "--")
 
-        # زمان ورود
         entry_time = datetime.fromisoformat(car['entry_time'])
         self.entry_time_label.setText(f"⏰ زمان ورود: {entry_time.strftime('%H:%M:%S')}")
 
-        # مدت توقف
         duration = datetime.now() - entry_time
         hours = duration.total_seconds() / 3600
         minutes = int(duration.total_seconds() / 60)
@@ -371,7 +402,6 @@ class ExitWidget(QWidget):
         else:
             self.duration_label.setText(f"⏱️ مدت توقف: {minutes} دقیقه")
 
-        # محاسبه هزینه
         free_minutes = int(self.db.get_setting('free_minutes', '15'))
         if minutes <= free_minutes:
             cost = 0
@@ -404,10 +434,15 @@ class ExitWidget(QWidget):
                     'payment_method': 'cash'
                 })
 
+                # آزادسازی کارت
+                if self.current_card:
+                    self.db.release_card(self.current_card)
+                    self.current_card = None
+
                 QMessageBox.information(
                     self, "✅ خروج موفق",
                     f"خروج ثبت شد\n\n"
-                    f"🚗 پلاک: {self.current_plate.display_format}\n"
+                    f"🚗 پلاک: {self.current_plate.full_plate}\n"
                     f"⏱️ مدت: {result['duration_hours']:.1f} ساعت\n"
                     f"💰 هزینه: {result['final_cost']:,.0f} تومان"
                 )
@@ -429,5 +464,50 @@ class ExitWidget(QWidget):
         self.entry_time_label.setText("⏰ زمان ورود: ---")
         self.duration_label.setText("⏱️ مدت توقف: ---")
         self.cost_label.setText("💰 هزینه: ---")
+        self.scan_status.setText("")
         self.current_plate = None
+        self.current_card = None
         self.exit_btn.setEnabled(False)
+
+    def on_rfid_card_scanned(self, uid):
+        """وقتی کارت RFID اسکن می‌شود (برای خروج)"""
+        print(f"📇 کارت RFID در خروج: {uid}")
+
+        try:
+            card_info = self.db.get_card_by_uid(uid)
+            print(f"🔍 اطلاعات کارت از دیتابیس: {card_info}")
+
+            if not card_info:
+                self.scan_status.setText(f"❌ کارت {uid} در سیستم ثبت نشده است")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;")
+                return
+
+            if card_info.get('status') != 'in_use':
+                self.scan_status.setText(f"⚠️ کارت {uid} در حال استفاده نیست")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #f39c12; font-weight: bold; padding: 5px;")
+                return
+
+            plate = card_info.get('assigned_to')
+            if not plate:
+                self.scan_status.setText(f"⚠️ کارت {uid} به خودرویی اختصاص ندارد")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #f39c12; font-weight: bold; padding: 5px;")
+                return
+
+            self.current_card = card_info['card_number']
+            self.search_input.setText(plate)
+            self.scan_status.setText(f"✅ کارت {uid} شناسایی شد - پلاک: {plate}")
+            self.scan_status.setStyleSheet("font-size: 12px; color: #27ae60; font-weight: bold; padding: 5px;")
+
+            self.find_vehicle_by_plate(plate)
+
+        except Exception as e:
+            self.scan_status.setText(f"❌ خطا: {str(e)}")
+            self.scan_status.setStyleSheet("font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;")
+            print(f"❌ خطا: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def closeEvent(self, event):
+        """بستن ویجت"""
+
+        event.accept()

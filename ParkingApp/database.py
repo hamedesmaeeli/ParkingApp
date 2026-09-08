@@ -1,6 +1,6 @@
 """
-مدیریت پایگاه داده SQLite
-نسخه 3.0 - Production Ready
+مدیریت پایگاه داده SQLite با پشتیبانی از سیستم کارت
+نسخه 4.0 - Sprint 4
 """
 
 import sqlite3
@@ -12,7 +12,7 @@ import threading
 
 
 class ParkingDatabase:
-    """مدیریت پایگاه داده SQLite با پشتیبانی همزمانی"""
+    """مدیریت پایگاه داده SQLite با پشتیبانی همزمانی و سیستم کارت"""
 
     _instance = None
     _lock = threading.Lock()
@@ -66,6 +66,16 @@ class ParkingDatabase:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )''')
 
+            # جدول کارت‌های پارکینگ
+            c.execute('''CREATE TABLE IF NOT EXISTS cards (
+                        card_number TEXT PRIMARY KEY,
+                        uid TEXT UNIQUE,  -- ← ستون uid اضافه شد
+                        status TEXT DEFAULT 'active',
+                        assigned_to TEXT,
+                        assigned_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )''')
+
             # جدول خودروهای فعال
             c.execute('''CREATE TABLE IF NOT EXISTS active_cars (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,12 +84,14 @@ class ParkingDatabase:
                 plate_letter TEXT NOT NULL,
                 plate_part2 TEXT NOT NULL,
                 plate_part3 TEXT,
+                card_number TEXT UNIQUE,
                 entry_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 entry_image TEXT,
                 plate_type TEXT DEFAULT 'personal',
                 province TEXT,
                 operator_name TEXT,
-                notes TEXT
+                notes TEXT,
+                FOREIGN KEY (card_number) REFERENCES cards(card_number)
             )''')
 
             # جدول تاریخچه
@@ -90,6 +102,7 @@ class ParkingDatabase:
                 plate_letter TEXT,
                 plate_part2 TEXT,
                 plate_part3 TEXT,
+                card_number TEXT,
                 entry_time TIMESTAMP NOT NULL,
                 exit_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 duration_minutes INTEGER NOT NULL,
@@ -123,6 +136,7 @@ class ParkingDatabase:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_type TEXT NOT NULL,
                 plate_number TEXT,
+                card_number TEXT,
                 description TEXT,
                 operator_name TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -151,11 +165,20 @@ class ParkingDatabase:
                         ON active_cars(plate_number)''')
             c.execute('''CREATE INDEX IF NOT EXISTS idx_active_entry 
                         ON active_cars(entry_time)''')
+            c.execute('''CREATE INDEX IF NOT EXISTS idx_active_card 
+                        ON active_cars(card_number)''')
+            c.execute('''CREATE INDEX IF NOT EXISTS idx_cards_status 
+                        ON cards(status)''')
+            c.execute('''CREATE INDEX IF NOT EXISTS idx_cards_assigned 
+                        ON cards(assigned_to)''')
+            c.execute('''CREATE INDEX IF NOT EXISTS idx_logs_card 
+                        ON event_logs(card_number)''')
 
             # درج داده‌های پیش‌فرض
             self._insert_default_settings(c)
             self._insert_default_operator(c)
             self._insert_default_rates(c)
+            self._insert_default_cards(c)
 
     def _insert_default_settings(self, cursor):
         """درج تنظیمات پیش‌فرض"""
@@ -188,38 +211,15 @@ class ParkingDatabase:
 
     def _insert_default_rates(self, cursor):
         """درج نرخ‌های ویژه پیش‌فرض"""
-        # حذف نرخ‌های قدیمی
         cursor.execute("DELETE FROM special_rates")
 
-        # نرخ‌های پیش‌فرض
         rates = [
-            {
-                'name': 'تاکسی',
-                'plate_type': 'taxi',
-                'discount_percent': 30,
-                'is_active': 1,
-                'start_time': None,
-                'end_time': None,
-                'description': 'تخفیف ویژه تاکسی‌ها'
-            },
-            {
-                'name': 'دولتی',
-                'plate_type': 'governmental',
-                'discount_percent': 30,
-                'is_active': 1,
-                'start_time': None,
-                'end_time': None,
-                'description': 'تخفیف خودروهای دولتی'
-            },
-            {
-                'name': 'شبانه',
-                'plate_type': 'personal',
-                'discount_percent': 20,
-                'is_active': 1,
-                'start_time': '22:00',
-                'end_time': '06:00',
-                'description': 'تخفیف شبانه (۲۲ تا ۶ صبح)'
-            }
+            {'name': 'تاکسی', 'plate_type': 'taxi', 'discount_percent': 30, 'is_active': 1,
+             'start_time': None, 'end_time': None, 'description': 'تخفیف ویژه تاکسی‌ها'},
+            {'name': 'دولتی', 'plate_type': 'governmental', 'discount_percent': 30, 'is_active': 1,
+             'start_time': None, 'end_time': None, 'description': 'تخفیف خودروهای دولتی'},
+            {'name': 'شبانه', 'plate_type': 'personal', 'discount_percent': 20, 'is_active': 1,
+             'start_time': '22:00', 'end_time': '06:00', 'description': 'تخفیف شبانه (۲۲ تا ۶ صبح)'}
         ]
 
         for rate in rates:
@@ -229,32 +229,194 @@ class ParkingDatabase:
                     (name, plate_type, discount_percent, is_active, 
                      start_time, end_time, description)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    rate['name'],
-                    rate['plate_type'],
-                    rate['discount_percent'],
-                    rate['is_active'],
-                    rate['start_time'],
-                    rate['end_time'],
-                    rate['description']
-                ))
+                ''', (rate['name'], rate['plate_type'], rate['discount_percent'],
+                      rate['is_active'], rate['start_time'], rate['end_time'], rate['description']))
             except Exception as e:
                 print(f"Warning: Could not insert rate '{rate['name']}': {e}")
 
-    # ==================== عملیات اصلی ====================
+    def _insert_default_cards(self, cursor):
+        """درج کارت‌های اولیه"""
+        cursor.execute("SELECT COUNT(*) FROM cards")
+        if cursor.fetchone()[0] == 0:
+            for i in range(1, 101):
+                card_number = f"{i:05d}"
+                cursor.execute(
+                    "INSERT OR IGNORE INTO cards (card_number) VALUES (?)",
+                    (card_number,)
+                )
+            print("✅ 100 کارت اولیه ایجاد شدند.")
+
+    # ==================== مدیریت کارت‌ها ====================
+
+    def initialize_cards(self, count=100):
+        """ایجاد کارت‌های اولیه در دیتابیس"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM cards")
+            if cursor.fetchone()[0] > 0:
+                print("⚠️ کارت‌ها قبلاً ایجاد شده‌اند.")
+                return
+
+            for i in range(1, count + 1):
+                card_number = f"{i:05d}"
+                cursor.execute(
+                    "INSERT OR IGNORE INTO cards (card_number) VALUES (?)",
+                    (card_number,)
+                )
+            conn.commit()
+            print(f"✅ {count} کارت اولیه با موفقیت ایجاد شدند.")
+
+    def get_available_card(self):
+        """دریافت یک کارت موجود (active)"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT card_number, uid FROM cards WHERE status = 'active' LIMIT 1"
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def reserve_card(self, card_number):
+        """رزرو کارت (تغییر وضعیت به 'in_use')"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE cards SET status = 'in_use' WHERE card_number = ? AND status = 'active'",
+                (card_number,)
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                raise Exception(f"کارت {card_number} در دسترس نیست!")
+
+    def release_card(self, card_number):
+        """آزادسازی کارت (تغییر وضعیت به 'active')"""
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE cards SET status = 'active', assigned_to = NULL, assigned_at = NULL WHERE card_number = ?",
+                (card_number,)
+            )
+            conn.commit()
+
+    def assign_card_to_vehicle(self, card_number, plate):
+        """اختصاص کارت به خودرو"""
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE cards SET assigned_to = ?, assigned_at = CURRENT_TIMESTAMP WHERE card_number = ?",
+                (plate, card_number)
+            )
+            conn.commit()
+
+    def get_card_status(self, card_number):
+        """دریافت وضعیت یک کارت"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT status, assigned_to FROM cards WHERE card_number = ?",
+                (card_number,)
+            )
+            return cursor.fetchone()
+
+    def get_all_cards(self, status_filter=None):
+        """دریافت لیست همه کارت‌ها با فیلتر وضعیت"""
+        with self.get_connection() as conn:
+            query = "SELECT * FROM cards"
+            params = []
+            if status_filter:
+                query += " WHERE status = ?"
+                params.append(status_filter)
+            query += " ORDER BY card_number"
+
+            cursor = conn.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_active_car_by_card(self, card_number):
+        """دریافت خودروی فعال بر اساس شماره کارت"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM active_cars WHERE card_number = ?",
+                (card_number,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    # ==================== عملیات اصلی با کارت ====================
+
+    def car_entry_with_card(self, plate_data, card_number):
+        """
+        ثبت ورود خودرو با کارت (بدون رزرو مجدد)
+        """
+        # ===== استفاده از یک اتصال واحد برای همه عملیات =====
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # ۱. بررسی تکراری نبودن
+            cursor.execute("SELECT id FROM active_cars WHERE plate_number = ?",
+                           (plate_data['plate_number'],))
+            if cursor.fetchone():
+                raise ValueError(f"خودرو با پلاک {plate_data['plate_number']} قبلاً ثبت شده است")
+
+            # ۲. ثبت ورود با کارت
+            cursor.execute('''INSERT INTO active_cars (
+                plate_number, plate_part1, plate_letter, plate_part2, plate_part3,
+                entry_time, entry_image, plate_type, province, operator_name, notes, card_number
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                plate_data['plate_number'],
+                plate_data['plate_part1'],
+                plate_data['plate_letter'],
+                plate_data['plate_part2'],
+                plate_data.get('plate_part3', ''),
+                datetime.now().isoformat(),
+                plate_data.get('entry_image'),
+                plate_data.get('plate_type', 'personal'),
+                plate_data.get('province', ''),
+                plate_data.get('operator_name', ''),
+                plate_data.get('notes', ''),
+                card_number
+            ))
+
+            # ۳. اختصاص کارت به خودرو (در همان اتصال)
+            cursor.execute(
+                "UPDATE cards SET assigned_to = ?, assigned_at = CURRENT_TIMESTAMP WHERE card_number = ?",
+                (plate_data['plate_number'], card_number)
+            )
+
+            # ۴. ثبت لاگ
+            self._log_event(cursor, 'entry', plate_data['plate_number'], card_number,
+                            f'ورود با کارت {card_number}', plate_data.get('operator_name', ''))
+
+            return cursor.lastrowid
+    def car_exit_by_card(self, card_number, exit_data=None):
+        """ثبت خروج خودرو با کارت"""
+        if exit_data is None:
+            exit_data = {}
+
+        # ۱. دریافت خودرو بر اساس کارت
+        car = self.get_active_car_by_card(card_number)
+        if not car:
+            raise ValueError(f"کارت {card_number} معتبر نیست یا به خودرویی اختصاص ندارد!")
+
+        # ۲. ثبت خروج با پلاک
+        result = self.car_exit(car['plate_number'], exit_data)
+
+        # ۳. آزادسازی کارت
+        self.release_card(card_number)
+
+        # ۴. ثبت لاگ خروج با کارت
+        with self.get_connection() as conn:
+            self._log_event(conn.cursor(), 'exit', car['plate_number'], card_number,
+                            f'خروج با کارت {card_number}', exit_data.get('operator_name', ''))
+
+        return result
+
+    # ==================== عملیات اصلی (بدون کارت) ====================
 
     def car_entry(self, plate_data):
-        """ثبت ورود خودرو"""
+        """ثبت ورود خودرو (بدون کارت - برای سازگاری)"""
         with self.get_connection() as conn:
             c = conn.cursor()
 
-            # بررسی تکراری نبودن
             c.execute("SELECT id FROM active_cars WHERE plate_number = ?",
                       (plate_data['plate_number'],))
             if c.fetchone():
                 raise ValueError(f"خودرو با پلاک {plate_data['plate_number']} قبلاً ثبت شده است")
 
-            # ثبت ورود
             c.execute('''INSERT INTO active_cars (
                 plate_number, plate_part1, plate_letter, plate_part2, plate_part3,
                 entry_time, entry_image, plate_type, province, operator_name, notes
@@ -272,8 +434,7 @@ class ParkingDatabase:
                 plate_data.get('notes', '')
             ))
 
-            # ثبت لاگ
-            self._log_event(c, 'entry', plate_data['plate_number'],
+            self._log_event(c, 'entry', plate_data['plate_number'], None,
                             'ورود خودرو', plate_data.get('operator_name', ''))
 
             return c.lastrowid
@@ -286,86 +447,65 @@ class ParkingDatabase:
         with self.get_connection() as conn:
             c = conn.cursor()
 
-            # دریافت اطلاعات ورود
             c.execute("SELECT * FROM active_cars WHERE plate_number = ?", (plate_number,))
             car = c.fetchone()
 
             if not car:
                 raise ValueError(f"خودرو با پلاک {plate_number} یافت نشد")
 
-            # محاسبه مدت توقف
             entry_time = datetime.fromisoformat(car['entry_time'])
             exit_time = datetime.now()
             duration = exit_time - entry_time
             total_minutes = int(duration.total_seconds() / 60)
             total_hours = total_minutes / 60
 
-            # دریافت تنظیمات
             hourly_rate = float(self.get_setting('hourly_rate', '5000'))
             free_minutes = int(self.get_setting('free_minutes', '15'))
             max_daily = float(self.get_setting('max_daily_cost', '50000'))
 
-            # محاسبه هزینه
             if total_minutes <= free_minutes:
                 cost = 0
                 discount_type = 'free_short_stop'
                 discount_percent = 100
             else:
-                # محاسبه پایه
                 hours_charged = max(1, int(total_hours + 0.99))
                 cost = hours_charged * hourly_rate
-
-                # بررسی سقف روزانه
                 if cost > max_daily:
                     cost = max_daily
-
-                # بررسی تخفیف‌های ویژه
                 discount_percent = self._calculate_discount(car['plate_type'])
                 discount_type = 'special' if discount_percent > 0 else 'none'
-
                 if discount_percent > 0:
                     cost = cost * (1 - discount_percent / 100)
 
             final_cost = cost
 
-            # ثبت در تاریخچه
+            # ذخیره کارت قبل از حذف
+            card_number = car['card_number']
+
             c.execute('''INSERT INTO parking_history (
                 plate_number, plate_part1, plate_letter, plate_part2, plate_part3,
-                entry_time, exit_time, duration_minutes, duration_hours,
+                card_number, entry_time, exit_time, duration_minutes, duration_hours,
                 cost, entry_image, exit_image, plate_type, province,
                 discount_type, discount_percent, final_cost,
                 operator_name, payment_method, payment_status, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
-                car['plate_number'],
-                car['plate_part1'],
-                car['plate_letter'],
-                car['plate_part2'],
-                car['plate_part3'],
-                car['entry_time'],
-                exit_time.isoformat(),
-                total_minutes,
-                round(total_hours, 2),
-                cost,
-                car['entry_image'],
-                exit_data.get('exit_image'),
-                car['plate_type'],
-                car['province'],
-                discount_type,
-                discount_percent,
-                final_cost,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                car['plate_number'], car['plate_part1'], car['plate_letter'],
+                car['plate_part2'], car['plate_part3'], card_number,
+                car['entry_time'], exit_time.isoformat(),
+                total_minutes, round(total_hours, 2),
+                cost, car['entry_image'], exit_data.get('exit_image'),
+                car['plate_type'], car['province'],
+                discount_type, discount_percent, final_cost,
                 exit_data.get('operator_name', ''),
                 exit_data.get('payment_method', 'cash'),
-                'paid',
-                exit_data.get('notes', '')
+                'paid', exit_data.get('notes', '')
             ))
 
             history_id = c.lastrowid
 
-            # حذف از خودروهای فعال
             c.execute("DELETE FROM active_cars WHERE plate_number = ?", (plate_number,))
 
-            # ثبت لاگ
-            self._log_event(c, 'exit', plate_number,
+            self._log_event(c, 'exit', plate_number, card_number,
                             f'خروج خودرو - هزینه: {final_cost:,.0f} تومان',
                             exit_data.get('operator_name', ''))
 
@@ -379,7 +519,8 @@ class ParkingDatabase:
                 'base_cost': cost,
                 'discount_percent': discount_percent,
                 'final_cost': final_cost,
-                'discount_type': discount_type
+                'discount_type': discount_type,
+                'card_number': card_number
             }
 
     def _calculate_discount(self, plate_type):
@@ -410,22 +551,17 @@ class ParkingDatabase:
 
             for row in c.fetchall():
                 car = dict(row)
-
-                # محاسبه مدت حضور
                 entry_time = datetime.fromisoformat(car['entry_time'])
                 duration = datetime.now() - entry_time
                 car['duration_hours'] = round(duration.total_seconds() / 3600, 1)
                 car['duration_minutes'] = int(duration.total_seconds() / 60)
 
-                # محاسبه هزینه تقریبی
                 hourly_rate = float(self.get_setting('hourly_rate', '5000'))
                 free_minutes = int(self.get_setting('free_minutes', '15'))
 
                 if car['duration_minutes'] > free_minutes:
                     hours = max(1, int(car['duration_hours'] + 0.99))
                     car['estimated_cost'] = hours * hourly_rate
-
-                    # اعمال تخفیف
                     discount = self._calculate_discount(car.get('plate_type', 'personal'))
                     if discount > 0:
                         car['estimated_cost'] *= (1 - discount / 100)
@@ -442,7 +578,6 @@ class ParkingDatabase:
         with self.get_connection() as conn:
             c = conn.cursor()
 
-            # ساخت query پایه
             query = "FROM parking_history WHERE 1=1"
             params = []
 
@@ -462,11 +597,9 @@ class ParkingDatabase:
                 query += " AND plate_type = ?"
                 params.append(plate_type)
 
-            # تعداد کل
             c.execute(f"SELECT COUNT(*) {query}", params)
             total = c.fetchone()[0]
 
-            # صفحه‌بندی
             offset = (page - 1) * per_page
             c.execute(f"SELECT * {query} ORDER BY exit_time DESC LIMIT ? OFFSET ?",
                       params + [per_page, offset])
@@ -489,7 +622,6 @@ class ParkingDatabase:
         with self.get_connection() as conn:
             c = conn.cursor()
 
-            # آمار روزانه
             c.execute('''SELECT 
                         COUNT(*) as count, 
                         COALESCE(SUM(final_cost), 0) as income,
@@ -499,7 +631,6 @@ class ParkingDatabase:
                         WHERE date(exit_time) = ?''', (date,))
             daily = dict(c.fetchone())
 
-            # تفکیک نوع پلاک
             c.execute('''SELECT plate_type, COUNT(*) as count, 
                         COALESCE(SUM(final_cost), 0) as income
                         FROM parking_history 
@@ -507,7 +638,6 @@ class ParkingDatabase:
                         GROUP BY plate_type''', (date,))
             by_type = [dict(row) for row in c.fetchall()]
 
-            # ساعات شلوغ
             c.execute('''SELECT strftime('%H', exit_time) as hour, 
                         COUNT(*) as count
                         FROM parking_history 
@@ -530,12 +660,10 @@ class ParkingDatabase:
         with self.get_connection() as conn:
             c = conn.cursor()
 
-            # جستجو در خودروهای فعال
             c.execute("SELECT * FROM active_cars WHERE plate_number LIKE ?",
                       (f'%{query}%',))
             active = [dict(row) for row in c.fetchall()]
 
-            # جستجو در تاریخچه
             c.execute('''SELECT * FROM parking_history 
                         WHERE plate_number LIKE ? 
                         ORDER BY exit_time DESC LIMIT 10''',
@@ -570,11 +698,12 @@ class ParkingDatabase:
 
     # ==================== لاگ‌ها ====================
 
-    def _log_event(self, cursor, event_type, plate_number, description, operator_name=''):
+    def _log_event(self, cursor, event_type, plate_number, card_number, description, operator_name=''):
         """ثبت لاگ رویداد (نیاز به cursor فعال)"""
-        cursor.execute('''INSERT INTO event_logs (event_type, plate_number, description, operator_name)
-                        VALUES (?, ?, ?, ?)''',
-                       (event_type, plate_number, description, operator_name))
+        cursor.execute('''INSERT INTO event_logs 
+                        (event_type, plate_number, card_number, description, operator_name)
+                        VALUES (?, ?, ?, ?, ?)''',
+                       (event_type, plate_number, card_number, description, operator_name))
 
     def get_recent_logs(self, limit=100):
         """دریافت لاگ‌های اخیر"""
@@ -590,10 +719,8 @@ class ParkingDatabase:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_path = f"backups/parking_backup_{timestamp}.db"
 
-        # بستن اتصالات قبل از کپی
         shutil.copy2(self.db_path, backup_path)
 
-        # حذف بکاپ‌های قدیمی (نگه‌داری ۳۰ عدد آخر)
         backups = sorted(os.listdir('backups'))
         if len(backups) > 30:
             for old_backup in backups[:-30]:
@@ -608,22 +735,20 @@ class ParkingDatabase:
         """خروجی Excel از تاریخچه"""
         try:
             import openpyxl
-            from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+            from openpyxl.styles import Font, Alignment, PatternFill
 
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "تاریخچه پارکینگ"
             ws.sheet_view.rightToLeft = True
 
-            # هدرها
             headers = [
-                'ردیف', 'پلاک', 'نوع', 'استان',
+                'ردیف', 'پلاک', 'کارت', 'نوع', 'استان',
                 'زمان ورود', 'زمان خروج', 'مدت (ساعت)',
                 'هزینه پایه', 'تخفیف', 'هزینه نهایی',
                 'اپراتور', 'روش پرداخت'
             ]
 
-            # استایل هدر
             header_font = Font(name='Tahoma', size=11, bold=True, color='FFFFFF')
             header_fill = PatternFill(start_color='2c3e50', end_color='2c3e50', fill_type='solid')
             header_alignment = Alignment(horizontal='center', vertical='center')
@@ -634,13 +759,13 @@ class ParkingDatabase:
                 cell.fill = header_fill
                 cell.alignment = header_alignment
 
-            # داده‌ها
             history = self.get_history(date_from=date_from, date_to=date_to, per_page=10000)
 
             for i, record in enumerate(history['records'], 1):
                 row_data = [
                     i,
                     record['plate_number'],
+                    record.get('card_number', '-'),
                     record.get('plate_type', 'شخصی'),
                     record.get('province', ''),
                     record['entry_time'][:16],
@@ -658,15 +783,12 @@ class ParkingDatabase:
                     cell.font = Font(name='Tahoma', size=10)
                     cell.alignment = Alignment(horizontal='center', vertical='center')
 
-                    # رنگ‌آمیزی هزینه
-                    if col == 10 and record['final_cost'] > 0:
+                    if col == 11 and record['final_cost'] > 0:
                         cell.font = Font(name='Tahoma', size=10, bold=True, color='c0392b')
 
-            # تنظیم عرض ستون‌ها
             for col in range(1, len(headers) + 1):
                 ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 15
 
-            # ذخیره
             os.makedirs('exports', exist_ok=True)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"exports/parking_report_{timestamp}.xlsx"
@@ -686,35 +808,144 @@ class ParkingDatabase:
 
             info = {}
 
-            # تعداد خودروهای فعال
             c.execute("SELECT COUNT(*) FROM active_cars")
             info['active_cars'] = c.fetchone()[0]
 
-            # تعداد کل تاریخچه
             c.execute("SELECT COUNT(*) FROM parking_history")
             info['total_history'] = c.fetchone()[0]
 
-            # درآمد امروز
             today = datetime.now().strftime('%Y-%m-%d')
             c.execute("SELECT COALESCE(SUM(final_cost), 0) FROM parking_history WHERE date(exit_time) = ?", (today,))
             info['today_income'] = c.fetchone()[0]
 
-            # درآمد ماه
             month = datetime.now().strftime('%Y-%m')
             c.execute("SELECT COALESCE(SUM(final_cost), 0) FROM parking_history WHERE strftime('%Y-%m', exit_time) = ?",
                       (month,))
             info['month_income'] = c.fetchone()[0]
 
-            # حجم پایگاه داده
-            if os.path.exists(self.db_path):
-                info['db_size'] = os.path.getsize(self.db_path) / (1024 * 1024)  # MB
+            c.execute("SELECT COUNT(*) FROM cards WHERE status = 'active'")
+            info['available_cards'] = c.fetchone()[0]
 
-            # تعداد بکاپ‌ها
+            c.execute("SELECT COUNT(*) FROM cards WHERE status = 'in_use'")
+            info['used_cards'] = c.fetchone()[0]
+
+            if os.path.exists(self.db_path):
+                info['db_size'] = os.path.getsize(self.db_path) / (1024 * 1024)
+
             if os.path.exists('backups'):
                 info['backup_count'] = len(os.listdir('backups'))
 
             return info
 
+# database.py (بخش‌های اضافه‌شده)
+
+    def get_card_by_uid(self, uid):
+        """دریافت اطلاعات کارت بر اساس UID"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM cards WHERE uid = ?",
+                (uid,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+
+    def update_card(self, card_number, uid=None, status=None, assigned_to=None):
+        """به‌روزرسانی کارت"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            updates = []
+            params = []
+
+            if uid is not None:
+                updates.append("uid = ?")
+                params.append(uid if uid else None)
+            if status is not None:
+                updates.append("status = ?")
+                params.append(status)
+            if assigned_to is not None:
+                updates.append("assigned_to = ?")
+                params.append(assigned_to if assigned_to else None)
+
+            if updates:
+                query = f"UPDATE cards SET {', '.join(updates)} WHERE card_number = ?"
+                params.append(card_number)
+                cursor.execute(query, params)
+                conn.commit()
+    def get_card_by_card_number(self, card_number):
+        """دریافت اطلاعات کارت بر اساس شماره کارت"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM cards WHERE card_number = ?",
+                (card_number,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+
+    def add_card(self, card_number, uid=None, status='active', assigned_to=None):
+        """افزودن کارت جدید"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO cards (card_number, uid, status, assigned_to)
+                VALUES (?, ?, ?, ?)
+            """, (card_number, uid, status, assigned_to))
+            conn.commit()
+
+
+    def update_card(self, card_number, uid=None, status=None, assigned_to=None):
+        """به‌روزرسانی کارت"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            updates = []
+            params = []
+
+            if uid is not None:
+                updates.append("uid = ?")
+                params.append(uid if uid else None)
+            if status is not None:
+                updates.append("status = ?")
+                params.append(status)
+            if assigned_to is not None:
+                updates.append("assigned_to = ?")
+                params.append(assigned_to if assigned_to else None)
+
+            if updates:
+                query = f"UPDATE cards SET {', '.join(updates)} WHERE card_number = ?"
+                params.append(card_number)
+                cursor.execute(query, params)
+                conn.commit()
+
+
+    def delete_card(self, card_number):
+        """حذف کارت"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM cards WHERE card_number = ?", (card_number,))
+            conn.commit()
+
+
+    def delete_all_cards(self):
+        """حذف همه کارت‌ها"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM cards")
+            conn.commit()
+
+
+    def get_all_cards(self, status_filter=None):
+        """دریافت لیست همه کارت‌ها"""
+        with self.get_connection() as conn:
+            query = "SELECT * FROM cards"
+            params = []
+            if status_filter:
+                query += " WHERE status = ?"
+                params.append(status_filter)
+            query += " ORDER BY card_number"
+
+            cursor = conn.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
 
 # ==================== تست ====================
 
@@ -722,51 +953,43 @@ if __name__ == "__main__":
     print("🧪 تست پایگاه داده...")
 
     try:
-        # ایجاد نمونه
         db = ParkingDatabase()
         print("✅ پایگاه داده ایجاد شد")
 
-        # تست ثبت ورود
+        # تست کارت‌ها
+        available = db.get_available_card()
+        print(f"✅ کارت موجود: {available}")
+
+        if available:
+            db.reserve_card(available)
+            print(f"✅ کارت {available} رزرو شد")
+
+            status = db.get_card_status(available)
+            print(f"✅ وضعیت کارت: {status}")
+
+            db.release_card(available)
+            print(f"✅ کارت {available} آزاد شد")
+
+        # تست ورود با کارت
         try:
-            entry_id = db.car_entry({
-                'plate_number': '12A345-11',
-                'plate_part1': '12',
-                'plate_letter': 'الف',
-                'plate_part2': '345',
-                'plate_part3': '11',
-                'plate_type': 'personal',
-                'province': 'اصفهان',
-                'operator_name': 'admin'
-            })
-            print(f"✅ ورود ثبت شد: {entry_id}")
-        except ValueError as e:
+            card = db.get_available_card()
+            if card:
+                entry_id = db.car_entry_with_card({
+                    'plate_number': '12A345-67',
+                    'plate_part1': '12',
+                    'plate_letter': 'A',
+                    'plate_part2': '345',
+                    'plate_part3': '67',
+                    'plate_type': 'personal',
+                    'operator_name': 'admin'
+                }, card)
+                print(f"✅ ورود با کارت ثبت شد: {entry_id}")
+
+                # تست خروج با کارت
+                result = db.car_exit_by_card(card, {'operator_name': 'admin'})
+                print(f"✅ خروج با کارت ثبت شد - هزینه: {result['final_cost']:,.0f} تومان")
+        except Exception as e:
             print(f"⚠️ {e}")
-
-        # تست دریافت خودروهای فعال
-        active = db.get_active_cars()
-        print(f"✅ خودروهای فعال: {len(active)}")
-
-        # تست ثبت خروج
-        try:
-            result = db.car_exit('12A345-11', {
-                'operator_name': 'admin',
-                'payment_method': 'cash'
-            })
-            print(f"✅ خروج ثبت شد - هزینه: {result['final_cost']:,.0f} تومان")
-        except ValueError as e:
-            print(f"⚠️ {e}")
-
-        # تست آمار
-        stats = db.get_statistics()
-        print(f"✅ آمار امروز: {stats['daily']['count']} خودرو")
-
-        # تست تنظیمات
-        rate = db.get_setting('hourly_rate')
-        print(f"✅ نرخ ساعتی: {rate} تومان")
-
-        # تست بکاپ
-        backup_path = db.backup_database()
-        print(f"✅ بکاپ در: {backup_path}")
 
         # تست اطلاعات پایگاه داده
         info = db.get_database_info()
@@ -777,5 +1000,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ خطا: {e}")
         import traceback
-
         traceback.print_exc()
+

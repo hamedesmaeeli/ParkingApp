@@ -14,6 +14,7 @@ from datetime import datetime
 import sys
 import os
 import random
+from rfid import RFIDIntegration
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from plate_utils import IranianPlate
@@ -23,7 +24,7 @@ from alpr.engine import ALPREngine
 class EntryWidget(QWidget):
     car_entered = pyqtSignal(dict)
 
-    def __init__(self, database, operator_name="admin"):
+    def __init__(self, database, rfid, operator_name="admin"):
         super().__init__()
         self.db = database
         self.operator_name = operator_name
@@ -33,12 +34,20 @@ class EntryWidget(QWidget):
         self.current_frame = None
         self.image_loaded = False
 
+        # ===== متغیرهای جدید برای سیستم کارت =====
+        self.current_card = None  # شماره کارت فعلی
+        self.card_reserved = False  # وضعیت رزرو کارت
+        # ========================================
+
         # ===== ALPR Engine =====
-        self.alpr_engine = ALPREngine(mock_mode=False)  # حالت واقعی
+        self.alpr_engine = ALPREngine(mock_mode=False)
         # ======================
 
-        self.init_ui()
+        # ===== RFID Integration =====
+        self.rfid = rfid  # ← دریافت از خارج
+        self.rfid.card_scanned.connect(self.on_rfid_card_scanned)
 
+        self.init_ui()
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(20)
@@ -479,7 +488,6 @@ class EntryWidget(QWidget):
         QApplication.processEvents()
 
         try:
-            # ===== پردازش با ALPR =====
             self.scan_progress.setValue(30)
             QApplication.processEvents()
 
@@ -488,20 +496,26 @@ class EntryWidget(QWidget):
             self.scan_progress.setValue(70)
             QApplication.processEvents()
 
-            # ===== کپی تصویر برای رسم (حتی اگر تشخیص کامل نباشد) =====
             frame_with_boxes = self.current_frame.copy()
             plate_text_display = ""
 
             if results:
                 result = results[0]
                 plate_text = result.plate
+
+                # ===== اطمینان از اینکه plate_text رشته است =====
+                if isinstance(plate_text, dict):
+                    plate_text = plate_text.get('text', '')
+                    print(f"🔍 تبدیل دیکشنری به رشته: {plate_text}")
+
                 confidence = result.confidence
                 x, y, w, h = result.bbox
 
-                # ===== ۱. رسم کادر سبز روی تصویر (همیشه) =====
+                # ===== رسم کادر =====
                 cv2.rectangle(frame_with_boxes, (x, y), (x + w, y + h), (0, 255, 0), 3)
 
-                # ===== ۲. اصلاح متن پلاک =====
+                # ===== اصلاح متن پلاک =====
+                # تبدیل اعداد فارسی به انگلیسی
                 persian_to_english = {
                     '۰': '0', '۱': '1', '۲': '2', '۳': '3',
                     '۴': '4', '۵': '5', '۶': '6', '۷': '7',
@@ -510,18 +524,20 @@ class EntryWidget(QWidget):
                 for p, e in persian_to_english.items():
                     plate_text = plate_text.replace(p, e)
 
+                # حذف فاصله و خط تیره
                 plate_text = plate_text.replace(' ', '').replace('-', '')
 
+                # حذف کاراکترهای غیرمجاز
                 import re
                 plate_text = re.sub(r'[^ابپتثجچحخدسصطعقلمنوهی0-9]', '', plate_text)
 
                 print(f"🔍 plate_text اصلاح‌شده: {plate_text}")
 
-                # ===== ۳. نمایش پلاک روی تصویر (همیشه) =====
+                # ===== نمایش پلاک روی تصویر =====
                 cv2.putText(frame_with_boxes, plate_text, (x, y - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-                # ===== ۴. پر کردن فیلدها (اگر فرمت درست باشد) =====
+                # ===== پر کردن فیلدها =====
                 if len(plate_text) >= 8:
                     part1 = plate_text[0:2]
                     letter = plate_text[2:3]
@@ -545,6 +561,16 @@ class EntryWidget(QWidget):
                             "font-size: 12px; color: #27ae60; font-weight: bold; padding: 5px;"
                         )
                         plate_text_display = full_plate
+
+                        # ===== پیشنهاد ثبت ورود با کارت =====
+                        reply = QMessageBox.question(
+                            self, "ثبت ورود",
+                            f"پلاک {full_plate} شناسایی شد.\nآیا می‌خواهید ورود را ثبت کنید؟",
+                            QMessageBox.Yes | QMessageBox.No
+                        )
+                        if reply == QMessageBox.Yes:
+                            self.start_entry_with_card()
+
                     else:
                         self.scan_status.setText(f"⚠️ فرمت نامعتبر: {plate_text}")
                         self.scan_status.setStyleSheet(
@@ -563,10 +589,7 @@ class EntryWidget(QWidget):
                     "font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;"
                 )
 
-            # ===== ۵. نمایش تصویر با کادر (همیشه) =====
             self.display_image(frame_with_boxes)
-
-            # ===== ۶. ذخیره تصویر =====
             if results:
                 self.save_captured_image(plate_text_display)
 
@@ -647,29 +670,51 @@ class EntryWidget(QWidget):
             self.part3.setFocus()
 
     def submit(self):
-        """ثبت ورود"""
+        """ثبت ورود با کارت (فراخوانی start_entry_with_card)"""
+        # اگر پلاک به‌صورت دستی وارد شده، ابتدا اعتبارسنجی شود
         if not self.current_plate.is_valid:
-            QMessageBox.warning(self, "⚠️ خطا", "لطفاً پلاک را کامل وارد کنید!")
-            return
+            # بررسی می‌کنیم که آیا پلاک در فیلدها وجود دارد
+            if self.part1.text() or self.letter.text() or self.part2.text():
+                QMessageBox.warning(self, "⚠️ خطا", "لطفاً پلاک را کامل و معتبر وارد کنید!")
+                return
+            # اگر هیچ فیلدی پر نشده، فرآیند کارت شروع می‌شود
+            return self.start_entry_with_card()
 
+        # اگر پلاک دستی معتبر است، از آن استفاده کن
         try:
+            # ۱. دریافت کارت
+            card_number = self.db.get_available_card()
+            if not card_number:
+                QMessageBox.warning(self, "⚠️ خطا", "هیچ کارت خالی موجود نیست!")
+                return
+
+            # ۲. رزرو کارت
+            self.db.reserve_card(card_number)
+            self.current_card = card_number
+
+
+
+            # ۳. ثبت ورود با کارت
             plate_data = self.current_plate.to_dict()
             plate_data['operator_name'] = self.operator_name
+            self.db.car_entry_with_card(plate_data, card_number)
 
-            self.db.car_entry(plate_data)
-
+            # ۴. نمایش پیام
             QMessageBox.information(
-                self, "✅ موفق",
-                f"ورود ثبت شد\n🚗 {self.current_plate.full_plate}\n"
-                f"⏰ {datetime.now().strftime('%H:%M:%S')}"
+                self, "✅ ورود ثبت شد",
+                f"🚗 پلاک: {self.current_plate.full_plate}\n"
+                f"🆔 کارت: {card_number}\n"
+                f"⏰ زمان: {datetime.now().strftime('%H:%M:%S')}"
             )
 
-            self.car_entered.emit(plate_data)
             self.clear_form()
+            self.current_card = None
 
         except Exception as e:
+            if self.current_card:
+                self.db.release_card(self.current_card)
+                self.current_card = None
             QMessageBox.critical(self, "❌ خطا", str(e))
-
     def clear_form(self):
         """پاک کردن فرم"""
         self.part1.clear()
@@ -692,3 +737,170 @@ class EntryWidget(QWidget):
         """بستن ویجت"""
         self.stop_camera()
         event.accept()
+
+    def on_rfid_card_scanned(self, uid):
+        """وقتی کارت RFID اسکن می‌شود (برای ورود)"""
+        print(f"📇 کارت RFID در ورود: {uid}")
+
+        try:
+            # ۱. جستجوی کارت در دیتابیس
+            card_info = self.db.get_card_by_uid(uid)
+
+            if not card_info:
+                self.scan_status.setText(f"❌ کارت {uid} در سیستم ثبت نشده است")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;")
+                return
+
+            # ۲. بررسی وضعیت کارت
+            if card_info.get('status') != 'active':
+                self.scan_status.setText(f"⚠️ کارت {uid} فعال نیست")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #f39c12; font-weight: bold; padding: 5px;")
+                return
+
+            # ۳. بررسی اینکه کارت به خودرویی اختصاص دارد
+            plate = card_info.get('assigned_to')
+            if not plate:
+                self.scan_status.setText(f"⚠️ کارت {uid} به خودرویی اختصاص ندارد")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #f39c12; font-weight: bold; padding: 5px;")
+                return
+
+            # ۴. پر کردن فیلدهای پلاک
+            clean_plate = plate.replace('-', '')
+            if len(clean_plate) >= 8:
+                self.part1.setText(clean_plate[0:2])
+                self.letter.setText(clean_plate[2:3])
+                self.part2.setText(clean_plate[3:6])
+                self.part3.setText(clean_plate[6:8])
+
+                self.scan_status.setText(f"✅ کارت {uid} شناسایی شد - پلاک: {plate}")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #27ae60; font-weight: bold; padding: 5px;")
+
+                # ۵. شروع فرآیند ورود با کارت
+                self.start_entry_with_card(plate)
+            else:
+                self.scan_status.setText(f"⚠️ فرمت پلاک نامعتبر: {plate}")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #f39c12; font-weight: bold; padding: 5px;")
+
+        except Exception as e:
+            self.scan_status.setText(f"❌ خطا: {str(e)}")
+            self.scan_status.setStyleSheet("font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;")
+            print(f"❌ خطا: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def start_entry_with_card(self, plate_text=None):
+        """
+        شروع فرآیند ورود با کارت (با پلاک مشخص)
+
+        Args:
+            plate_text (str): پلاک خودرو (اختیاری)
+        """
+        try:
+            # ۱. دریافت یک کارت موجود
+            card_info = self.db.get_available_card()
+            if not card_info:
+                QMessageBox.warning(
+                    self, "⚠️ پارکینگ پر است",
+                    "هیچ کارت خالی موجود نیست!"
+                )
+                return
+
+            card_number = card_info['card_number']
+
+            # ۲. رزرو کارت
+            self.db.reserve_card(card_number)
+            self.current_card = card_number
+            print(f"✅ کارت {card_number} رزرو شد.")
+
+            try:
+                self.rfid.reader.buzzer(5)  # ۵ = ۵۰ms
+                print("🔔 بوق پخش شد.")
+            except Exception as e:
+                print(f"⚠️ خطا در پخش بوق: {e}")
+
+            # ۳. اگر پلاک داده نشده، از فیلدها بخوان
+            if not plate_text:
+                plate_obj = self.current_plate
+                if not plate_obj.is_valid:
+                    raise Exception("پلاک نامعتبر است!")
+                plate_text = plate_obj.full_plate
+
+            # ۴. اختصاص کارت به خودرو
+            self.db.assign_card_to_vehicle(card_number, plate_text)
+
+            # ۵. ثبت ورود
+            plate_data = self.current_plate.to_dict()
+            plate_data['operator_name'] = self.operator_name
+            self.db.car_entry(plate_data)
+
+            # ۶. نمایش موفقیت
+            QMessageBox.information(
+                self, "✅ ورود ثبت شد",
+                f"🚗 پلاک: {plate_text}\n"
+                f"🆔 کارت: {card_number}\n"
+                f"⏰ زمان: {datetime.now().strftime('%H:%M:%S')}"
+            )
+
+            self.clear_form()
+            self.current_card = None
+
+        except Exception as e:
+            print(f"❌ خطا: {e}")
+            if self.current_card:
+                self.db.release_card(self.current_card)
+                self.current_card = None
+            QMessageBox.critical(self, "❌ خطا", str(e))
+
+    def on_rfid_card_scanned(self, uid):
+        """وقتی کارت RFID اسکن می‌شود"""
+        print(f"📇 کارت RFID در ورود: {uid}")
+
+        try:
+            # ۱. جستجوی کارت در دیتابیس
+            card_info = self.db.get_card_by_uid(uid)
+            print(f"🔍 اطلاعات کارت از دیتابیس: {card_info}")
+
+            if not card_info:
+                self.scan_status.setText(f"❌ کارت {uid} در سیستم ثبت نشده است")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;")
+                return
+
+            # ۲. بررسی وضعیت کارت
+            print(f"📊 وضعیت کارت: {card_info.get('status')}")
+            if card_info['status'] != 'active':
+                self.scan_status.setText(f"⚠️ کارت {uid} فعال نیست (وضعیت: {card_info['status']})")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #f39c12; font-weight: bold; padding: 5px;")
+                return
+
+            # ۳. بررسی اینکه کارت به خودرویی اختصاص دارد
+            plate = card_info.get('assigned_to')
+            print(f"🚗 پلاک اختصاص‌یافته: {plate}")
+            if not plate:
+                self.scan_status.setText(f"⚠️ کارت {uid} به خودرویی اختصاص ندارد")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #f39c12; font-weight: bold; padding: 5px;")
+                return
+
+            # ۴. پر کردن فیلدهای پلاک
+            clean_plate = plate.replace('-', '')
+            print(f"🔍 پلاک تمیز: {clean_plate}")
+            if len(clean_plate) >= 8:
+                self.part1.setText(clean_plate[0:2])
+                self.letter.setText(clean_plate[2:3])
+                self.part2.setText(clean_plate[3:6])
+                self.part3.setText(clean_plate[6:8])
+
+                self.scan_status.setText(f"✅ کارت {uid} شناسایی شد - پلاک: {plate}")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #27ae60; font-weight: bold; padding: 5px;")
+
+                # ۵. شروع فرآیند ورود با کارت
+                self.start_entry_with_card()
+            else:
+                self.scan_status.setText(f"⚠️ فرمت پلاک نامعتبر: {plate}")
+                self.scan_status.setStyleSheet("font-size: 12px; color: #f39c12; font-weight: bold; padding: 5px;")
+
+        except Exception as e:
+            self.scan_status.setText(f"❌ خطا در پردازش کارت: {str(e)}")
+            self.scan_status.setStyleSheet("font-size: 12px; color: #e74c3c; font-weight: bold; padding: 5px;")
+            print(f"❌ خطا: {e}")
+            import traceback
+            traceback.print_exc()

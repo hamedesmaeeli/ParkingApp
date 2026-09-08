@@ -7,8 +7,6 @@ import sys
 import os
 from datetime import datetime
 
-
-
 from PyQt5.QtWidgets import QApplication, QSplashScreen
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap, QFont
