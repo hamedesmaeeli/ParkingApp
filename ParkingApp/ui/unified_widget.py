@@ -542,7 +542,7 @@ class UnifiedWidget(QWidget):
     # ======================== خروج ========================
 
     def show_exit_info(self, plate):
-        """نمایش اطلاعات خروج"""
+        """نمایش اطلاعات خروج با نرخ ساعت اول و دوم"""
         try:
             cars = self.db.get_active_cars()
             for car in cars:
@@ -559,16 +559,46 @@ class UnifiedWidget(QWidget):
                     else:
                         self.duration_label.setText(f"⏱️ مدت توقف: {minutes} دقیقه")
 
-                    # محاسبه هزینه
+                    # ===== محاسبه هزینه با نرخ ساعت اول و دوم =====
+                    first_hour_rate = float(self.db.get_setting('first_hour_rate', '10000'))
+                    next_hours_rate = float(self.db.get_setting('next_hours_rate', '5000'))
                     free_minutes = int(self.db.get_setting('free_minutes', '15'))
+                    max_daily = float(self.db.get_setting('max_daily_cost', '50000'))
+
                     if minutes <= free_minutes:
                         cost = 0
-                        self.cost_label.setText("💰 هزینه: 🎉 رایگان")
+                        self.cost_label.setText("💰 هزینه: 🎉 رایگان (کمتر از ۱۵ دقیقه)")
                     else:
-                        hourly_rate = float(self.db.get_setting('hourly_rate', '5000'))
-                        hours_charged = max(1, int(hours + 0.99))
-                        cost = hours_charged * hourly_rate
-                        self.cost_label.setText(f"💰 هزینه: {cost:,.0f} تومان")
+                        if hours <= 1:
+                            # فقط ساعت اول
+                            cost = first_hour_rate
+                            detail = f"ساعت اول: {first_hour_rate:,.0f}"
+                        else:
+                            # ساعت اول + ساعات بعدی
+                            extra_hours = int(hours)
+                            cost = first_hour_rate + (extra_hours * next_hours_rate)
+                            detail = (
+                                f"ساعت اول: {first_hour_rate:,.0f} + "
+                                f"{extra_hours} ساعت بعدی: {extra_hours * next_hours_rate:,.0f}"
+                            )
+
+                        # بررسی سقف روزانه
+                        if cost > max_daily:
+                            cost = max_daily
+                            detail += " (سقف روزانه)"
+
+                        self.cost_label.setText(
+                            f"💰 هزینه: {cost:,.0f} تومان\n"
+                            f"({detail})"
+                        )
+                        self.cost_label.setStyleSheet("""
+                            font-size: 16px;
+                            font-weight: bold;
+                            color: #e74c3c;
+                            padding: 10px;
+                            background-color: #fadbd8;
+                            border-radius: 8px;
+                        """)
 
                     self.status_label.setText(f"✅ خودرو با پلاک {plate} پیدا شد")
                     self.status_label.setStyleSheet("font-size: 12px; color: #27ae60; padding: 5px;")
@@ -579,6 +609,8 @@ class UnifiedWidget(QWidget):
 
         except Exception as e:
             print(f"❌ خطا: {e}")
+            import traceback
+            traceback.print_exc()
 
     def confirm_exit(self):
         """تأیید خروج"""

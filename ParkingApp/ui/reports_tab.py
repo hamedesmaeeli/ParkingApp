@@ -1,266 +1,298 @@
 """
-تب گزارش‌گیری و آمار
+تب گزارش‌گیری - نسخه کامل با قابلیت باز کردن فایل و پوشه
 """
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-    QPushButton, QDateEdit, QComboBox, QFrame, QMessageBox,
-    QTableWidget, QTableWidgetItem, QHeaderView
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QGroupBox, QDateEdit, QComboBox,
+    QMessageBox, QFrame, QGridLayout
 )
-from PyQt5.QtCore import Qt, QDate, pyqtSignal
-from PyQt5.QtGui import QFont, QColor
-from datetime import datetime, timedelta
+from PyQt5.QtCore import Qt, QDate
+from datetime import datetime
 import os
+import sys
+import subprocess
+import platform
 
-from ui.styles import ParkingStyles
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from reports import ReportGenerator
 
 
 class ReportsTab(QWidget):
-    """تب گزارش‌ها و آمار"""
+    """تب گزارش‌گیری"""
 
     def __init__(self, database):
         super().__init__()
         self.db = database
+        self.generator = ReportGenerator(database)
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setSpacing(15)
+        layout.setSpacing(20)
+        layout.setContentsMargins(30, 30, 30, 30)
 
-        # عنوان
-        title = QLabel("📈 گزارش‌ها و آمار")
-        title.setObjectName("titleLabel")
+        # ===== عنوان =====
+        title = QLabel("📊 گزارش‌گیری")
         title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 26px; font-weight: bold; color: #2c3e50; padding: 15px;")
         layout.addWidget(title)
 
-        # انتخاب بازه زمانی
-        date_group = QGroupBox("📅 بازه زمانی گزارش")
-        date_layout = QHBoxLayout()
-        date_layout.setSpacing(10)
+        # ===== گزارش سریع =====
+        quick_group = QGroupBox("⚡ گزارش سریع")
+        quick_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 16px; font-weight: bold;
+                border: 2px solid #3498db; border-radius: 10px;
+                padding: 20px; padding-top: 35px;
+                background-color: white;
+            }
+            QGroupBox::title { left: 15px; padding: 8px 20px; background-color: #3498db; color: white; border-radius: 5px; }
+        """)
+        quick_layout = QHBoxLayout()
+        quick_layout.setSpacing(15)
 
-        # گزارش‌های آماده
-        quick_reports = QComboBox()
-        quick_reports.addItems([
-            "انتخاب بازه زمانی...",
-            "امروز",
-            "دیروز",
-            "این هفته",
-            "این ماه",
-            "ماه گذشته",
-            "سه ماه اخیر",
-            "امسال"
-        ])
-        quick_reports.setMinimumHeight(45)
-        quick_reports.currentIndexChanged.connect(self.on_quick_report)
+        # گزارش روزانه
+        daily_btn = QPushButton("📅 گزارش روزانه")
+        daily_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db; color: white;
+                padding: 15px; border-radius: 8px; font-weight: bold;
+                font-size: 14px; border: none;
+            }
+            QPushButton:hover { background-color: #2980b9; }
+        """)
+        daily_btn.clicked.connect(self.daily_report)
+        quick_layout.addWidget(daily_btn)
 
-        date_layout.addWidget(QLabel("گزارش سریع:"))
-        date_layout.addWidget(quick_reports)
+        # گزارش ماهانه
+        monthly_btn = QPushButton("📆 گزارش ماهانه")
+        monthly_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9b59b6; color: white;
+                padding: 15px; border-radius: 8px; font-weight: bold;
+                font-size: 14px; border: none;
+            }
+            QPushButton:hover { background-color: #8e44ad; }
+        """)
+        monthly_btn.clicked.connect(self.monthly_report)
+        quick_layout.addWidget(monthly_btn)
 
-        date_layout.addWidget(QLabel("از:"))
+        quick_group.setLayout(quick_layout)
+        layout.addWidget(quick_group)
+
+        # ===== گزارش سفارشی =====
+        custom_group = QGroupBox("🔧 گزارش سفارشی")
+        custom_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 16px; font-weight: bold;
+                border: 2px solid #27ae60; border-radius: 10px;
+                padding: 20px; padding-top: 35px;
+                background-color: white;
+            }
+            QGroupBox::title { left: 15px; padding: 8px 20px; background-color: #27ae60; color: white; border-radius: 5px; }
+        """)
+        custom_layout = QGridLayout()
+        custom_layout.setSpacing(15)
+
+        # تاریخ شروع
+        custom_layout.addWidget(QLabel("از تاریخ:"), 0, 0)
         self.date_from = QDateEdit()
         self.date_from.setCalendarPopup(True)
-        self.date_from.setDate(QDate.currentDate())
-        self.date_from.setMinimumHeight(45)
-        date_layout.addWidget(self.date_from)
+        self.date_from.setDate(QDate.currentDate().addDays(-30))
+        self.date_from.setStyleSheet("padding: 8px; border: 2px solid #ddd; border-radius: 5px;")
+        custom_layout.addWidget(self.date_from, 0, 1)
 
-        date_layout.addWidget(QLabel("تا:"))
+        # تاریخ پایان
+        custom_layout.addWidget(QLabel("تا تاریخ:"), 0, 2)
         self.date_to = QDateEdit()
         self.date_to.setCalendarPopup(True)
         self.date_to.setDate(QDate.currentDate())
-        self.date_to.setMinimumHeight(45)
-        date_layout.addWidget(self.date_to)
-
-        generate_btn = QPushButton("📊 تولید گزارش")
-        generate_btn.setObjectName("goldenBtn")
-        generate_btn.clicked.connect(self.generate_report)
-        generate_btn.setMinimumHeight(45)
-        date_layout.addWidget(generate_btn)
-
-        date_group.setLayout(date_layout)
-        layout.addWidget(date_group)
-
-        # کارت‌های آمار خلاصه
-        summary_layout = QHBoxLayout()
-        summary_layout.setSpacing(15)
-
-        self.income_card = self.create_summary_card("💰 درآمد کل", "۰ تومان", ParkingStyles.SUCCESS)
-        self.count_card = self.create_summary_card("🚗 تعداد خودرو", "۰", ParkingStyles.INFO)
-        self.avg_card = self.create_summary_card("⏱️ میانگین توقف", "۰ ساعت", ParkingStyles.WARNING)
-        self.max_card = self.create_summary_card("📈 بیشترین درآمد", "۰ تومان", ParkingStyles.GOLD)
-
-        summary_layout.addWidget(self.income_card)
-        summary_layout.addWidget(self.count_card)
-        summary_layout.addWidget(self.avg_card)
-        summary_layout.addWidget(self.max_card)
-
-        layout.addLayout(summary_layout)
-
-        # جدول گزارش
-        self.report_table = QTableWidget()
-        self.report_table.setColumnCount(7)
-        self.report_table.setHorizontalHeaderLabels([
-            "تاریخ", "تعداد", "درآمد کل", "میانگین توقف",
-            "شخصی", "تاکسی", "سایر"
-        ])
-        self.report_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.report_table.setAlternatingRowColors(True)
-
-        layout.addWidget(self.report_table)
+        self.date_to.setStyleSheet("padding: 8px; border: 2px solid #ddd; border-radius: 5px;")
+        custom_layout.addWidget(self.date_to, 0, 3)
 
         # دکمه‌های خروجی
-        export_layout = QHBoxLayout()
-        export_layout.setSpacing(10)
-
-        export_excel_btn = QPushButton("📥 Excel")
-        export_excel_btn.setObjectName("successBtn")
-        export_excel_btn.clicked.connect(self.export_excel)
-        export_excel_btn.setMinimumHeight(45)
-
-        export_pdf_btn = QPushButton("📄 PDF")
-        export_pdf_btn.setObjectName("goldenBtn")
-        export_pdf_btn.clicked.connect(self.export_pdf)
-        export_pdf_btn.setMinimumHeight(45)
-
-        print_btn = QPushButton("🖨️ چاپ")
-        print_btn.clicked.connect(self.print_report)
-        print_btn.setMinimumHeight(45)
-
-        export_layout.addWidget(export_excel_btn)
-        export_layout.addWidget(export_pdf_btn)
-        export_layout.addWidget(print_btn)
-        export_layout.addStretch()
-
-        layout.addLayout(export_layout)
-
-    def create_summary_card(self, title, value, color):
-        """ایجاد کارت خلاصه"""
-        card = QFrame()
-        card.setStyleSheet(f"""
-            QFrame {{
-                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                    stop: 0 white, stop: 1 #f8f9fa);
-                border: 2px solid {color};
-                border-radius: 12px;
-                padding: 15px;
-            }}
+        excel_btn = QPushButton("📊 خروجی Excel")
+        excel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60; color: white;
+                padding: 12px; border-radius: 8px; font-weight: bold;
+                border: none;
+            }
+            QPushButton:hover { background-color: #2ecc71; }
         """)
+        excel_btn.clicked.connect(self.custom_excel)
+        custom_layout.addWidget(excel_btn, 1, 0, 1, 2)
 
-        card_layout = QVBoxLayout(card)
-        card_layout.setSpacing(8)
+        pdf_btn = QPushButton("📄 خروجی PDF")
+        pdf_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c; color: white;
+                padding: 12px; border-radius: 8px; font-weight: bold;
+                border: none;
+            }
+            QPushButton:hover { background-color: #c0392b; }
+        """)
+        pdf_btn.clicked.connect(self.custom_pdf)
+        custom_layout.addWidget(pdf_btn, 1, 2, 1, 2)
 
-        title_label = QLabel(title)
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet(f"color: {color}; font-size: 12px; font-weight: bold; background: transparent;")
+        custom_group.setLayout(custom_layout)
+        layout.addWidget(custom_group)
 
-        value_label = QLabel(value)
-        value_label.setAlignment(Qt.AlignCenter)
-        value_label.setStyleSheet(
-            f"color: {ParkingStyles.PRIMARY_DARK}; font-size: 18px; font-weight: bold; background: transparent;")
+        # ===== دکمه باز کردن پوشه =====
+        folder_layout = QHBoxLayout()
+        folder_layout.addStretch()
 
-        card_layout.addWidget(title_label)
-        card_layout.addWidget(value_label)
+        open_folder_btn = QPushButton("📂 باز کردن پوشه خروجی‌ها")
+        open_folder_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f39c12; color: white;
+                padding: 12px 30px; border-radius: 8px;
+                font-weight: bold; font-size: 14px; border: none;
+            }
+            QPushButton:hover { background-color: #e67e22; }
+        """)
+        open_folder_btn.clicked.connect(self.open_exports_folder)
+        folder_layout.addWidget(open_folder_btn)
+        folder_layout.addStretch()
 
-        # ذخیره reference
-        card.value_label = value_label
+        layout.addLayout(folder_layout)
 
-        return card
+        # ===== راهنما =====
+        help_label = QLabel(
+            "💡 راهنما:\n"
+            "• گزارش روزانه: آمار امروز (خروجی Excel)\n"
+            "• گزارش ماهانه: آمار ماه جاری (خروجی Excel و PDF)\n"
+            "• گزارش سفارشی: انتخاب بازه زمانی دلخواه\n"
+            "• فایل‌های خروجی در پوشه exports ذخیره می‌شوند.\n"
+            "• پس از تولید، امکان باز کردن فایل وجود دارد."
+        )
+        help_label.setStyleSheet("""
+            font-size: 13px; color: #7f8c8d; padding: 15px;
+            background-color: #f8f9fa; border-radius: 8px;
+            line-height: 1.6;
+        """)
+        help_label.setWordWrap(True)
+        layout.addWidget(help_label)
 
-    def on_quick_report(self, index):
-        """انتخاب گزارش سریع"""
-        today = QDate.currentDate()
+        layout.addStretch()
 
-        if index == 1:  # امروز
-            self.date_from.setDate(today)
-            self.date_to.setDate(today)
-        elif index == 2:  # دیروز
-            yesterday = today.addDays(-1)
-            self.date_from.setDate(yesterday)
-            self.date_to.setDate(yesterday)
-        elif index == 3:  # این هفته
-            self.date_from.setDate(today.addDays(-today.dayOfWeek() + 1))
-            self.date_to.setDate(today)
-        elif index == 4:  # این ماه
-            self.date_from.setDate(QDate(today.year(), today.month(), 1))
-            self.date_to.setDate(today)
-        elif index == 5:  # ماه گذشته
-            last_month = today.addMonths(-1)
-            self.date_from.setDate(QDate(last_month.year(), last_month.month(), 1))
-            self.date_to.setDate(QDate(last_month.year(), last_month.month(), last_month.daysInMonth()))
-        elif index == 6:  # سه ماه اخیر
-            self.date_from.setDate(today.addMonths(-3))
-            self.date_to.setDate(today)
-        elif index == 7:  # امسال
-            self.date_from.setDate(QDate(today.year(), 1, 1))
-            self.date_to.setDate(today)
+    # ======================== گزارش‌ها ========================
 
-    def generate_report(self):
-        """تولید گزارش"""
+    def daily_report(self):
+        """گزارش روزانه"""
+        try:
+            result = self.generator.daily_report()
+
+            reply = QMessageBox.question(
+                self, "✅ گزارش روزانه",
+                f"گزارش روزانه با موفقیت ایجاد شد.\n\n"
+                f"📁 فایل: {result['excel']}\n"
+                f"📊 تعداد خودرو: {result['stats']['daily']['count']}\n"
+                f"💰 درآمد: {result['stats']['daily']['income']:,.0f} تومان\n\n"
+                f"آیا می‌خواهید فایل را باز کنید؟",
+                QMessageBox.Yes | QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                self.open_file(result['excel'])
+
+        except Exception as e:
+            QMessageBox.critical(self, "❌ خطا", str(e))
+
+    def monthly_report(self):
+        """گزارش ماهانه"""
+        try:
+            result = self.generator.monthly_report()
+
+            reply = QMessageBox.question(
+                self, "✅ گزارش ماهانه",
+                f"گزارش ماهانه با موفقیت ایجاد شد.\n\n"
+                f"📁 Excel: {result['excel']}\n"
+                f"📄 PDF: {result['pdf']}\n\n"
+                f"آیا می‌خواهید فایل‌ها را باز کنید؟",
+                QMessageBox.Yes | QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                self.open_file(result['excel'])
+                self.open_file(result['pdf'])
+
+        except Exception as e:
+            QMessageBox.critical(self, "❌ خطا", str(e))
+
+    def custom_excel(self):
+        """خروجی Excel سفارشی"""
         try:
             date_from = self.date_from.date().toString("yyyy-MM-dd")
             date_to = self.date_to.date().toString("yyyy-MM-dd")
 
-            # دریافت آمار کلی
-            stats = self.db.get_statistics(date_to)
+            filepath = self.generator.excel.export_history(date_from, date_to)
 
-            # بروزرسانی کارت‌ها
-            self.income_card.value_label.setText(f"{stats['daily']['income']:,.0f} تومان")
-            self.count_card.value_label.setText(str(stats['daily']['count']))
-            self.avg_card.value_label.setText(f"{stats['daily']['avg_duration']:.1f} ساعت")
+            reply = QMessageBox.question(
+                self, "✅ خروجی Excel",
+                f"فایل Excel با موفقیت ایجاد شد.\n\n📁 {filepath}\n\n"
+                f"آیا می‌خواهید فایل را باز کنید؟",
+                QMessageBox.Yes | QMessageBox.No
+            )
 
-            # محاسبه بیشترین درآمد
-            max_income = max([item['income'] for item in stats['by_plate_type']]) if stats['by_plate_type'] else 0
-            self.max_card.value_label.setText(f"{max_income:,.0f} تومان")
-
-            # پر کردن جدول روزانه
-            from datetime import datetime, timedelta
-
-            start = datetime.strptime(date_from, "%Y-%m-%d")
-            end = datetime.strptime(date_to, "%Y-%m-%d")
-
-            self.report_table.setRowCount(0)
-            row = 0
-
-            current = start
-            while current <= end:
-                date_str = current.strftime("%Y-%m-%d")
-                daily_stats = self.db.get_statistics(date_str)
-
-                self.report_table.insertRow(row)
-
-                self.report_table.setItem(row, 0, QTableWidgetItem(date_str))
-                self.report_table.setItem(row, 1, QTableWidgetItem(str(daily_stats['daily']['count'])))
-                self.report_table.setItem(row, 2, QTableWidgetItem(f"{daily_stats['daily']['income']:,.0f}"))
-                self.report_table.setItem(row, 3, QTableWidgetItem(f"{daily_stats['daily']['avg_duration']:.1f}"))
-
-                # تفکیک انواع
-                by_type = {item['plate_type']: item['count'] for item in daily_stats['by_plate_type']}
-                self.report_table.setItem(row, 4, QTableWidgetItem(str(by_type.get('personal', 0))))
-                self.report_table.setItem(row, 5, QTableWidgetItem(str(by_type.get('taxi', 0))))
-                self.report_table.setItem(row, 6, QTableWidgetItem(str(
-                    by_type.get('governmental', 0) + by_type.get('military', 0) + by_type.get('diplomatic', 0)
-                )))
-
-                # رنگ‌آمیزی درآمد
-                if daily_stats['daily']['income'] > 1000000:
-                    for col in range(7):
-                        self.report_table.item(row, col).setBackground(QColor("#d5f5e3"))
-
-                row += 1
-                current += timedelta(days=1)
-
-            QMessageBox.information(self, "موفق", "گزارش با موفقیت تولید شد")
+            if reply == QMessageBox.Yes:
+                self.open_file(filepath)
 
         except Exception as e:
-            QMessageBox.critical(self, "خطا", f"خطا در تولید گزارش:\n{str(e)}")
+            QMessageBox.critical(self, "❌ خطا", str(e))
 
-    def export_excel(self):
-        """خروجی Excel"""
-        QMessageBox.information(self, "خروجی", "قابلیت خروجی Excel در منوی تاریخچه موجود است")
+    def custom_pdf(self):
+        """خروجی PDF سفارشی"""
+        try:
+            date_from = self.date_from.date().toString("yyyy-MM-dd")
+            date_to = self.date_to.date().toString("yyyy-MM-dd")
 
-    def export_pdf(self):
-        """خروجی PDF"""
-        QMessageBox.information(self, "PDF", "قابلیت خروجی PDF در نسخه‌های بعدی اضافه خواهد شد")
+            filepath = self.generator.pdf.export_history(date_from, date_to)
 
-    def print_report(self):
-        """چاپ گزارش"""
-        QMessageBox.information(self, "چاپ", "گزارش آماده چاپ است")
+            reply = QMessageBox.question(
+                self, "✅ خروجی PDF",
+                f"فایل PDF با موفقیت ایجاد شد.\n\n📁 {filepath}\n\n"
+                f"آیا می‌خواهید فایل را باز کنید؟",
+                QMessageBox.Yes | QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                self.open_file(filepath)
+
+        except Exception as e:
+            QMessageBox.critical(self, "❌ خطا", str(e))
+
+    # ======================== عملیات فایل ========================
+
+    def open_file(self, filepath):
+        """باز کردن فایل با برنامه پیش‌فرض سیستم"""
+        if not os.path.exists(filepath):
+            QMessageBox.warning(self, "⚠️ خطا", f"فایل پیدا نشد:\n{filepath}")
+            return
+
+        try:
+            if platform.system() == 'Windows':
+                os.startfile(filepath)
+            elif platform.system() == 'Darwin':  # macOS
+                subprocess.call(['open', filepath])
+            else:  # Linux
+                subprocess.call(['xdg-open', filepath])
+        except Exception as e:
+            QMessageBox.critical(self, "❌ خطا", f"خطا در باز کردن فایل:\n{str(e)}")
+
+    def open_exports_folder(self):
+        """باز کردن پوشه exports"""
+        export_dir = os.path.abspath("exports")
+        if not os.path.exists(export_dir):
+            os.makedirs(export_dir, exist_ok=True)
+
+        try:
+            if platform.system() == 'Windows':
+                os.startfile(export_dir)
+            elif platform.system() == 'Darwin':
+                subprocess.call(['open', export_dir])
+            else:
+                subprocess.call(['xdg-open', export_dir])
+        except Exception as e:
+            QMessageBox.critical(self, "❌ خطا", f"خطا در باز کردن پوشه:\n{str(e)}")

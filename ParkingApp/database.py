@@ -24,9 +24,20 @@ class ParkingDatabase:
                     cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, db_path="data/parking.db"):
+
+
+    def __init__(self, db_path=None):
         if not hasattr(self, 'initialized'):
+            # ===== مسیر ثابت بر اساس محل فایل database.py =====
+            if db_path is None:
+                # مسیر فایل database.py
+                current_file = os.path.abspath(__file__)
+                # پوشه‌ای که database.py در آن است (ریشه پروژه)
+                project_root = os.path.dirname(current_file)
+                db_path = os.path.join(project_root, "data", "parking.db")
+
             self.db_path = db_path
+            print(f"📁 [Database] مسیر دیتابیس: {os.path.abspath(self.db_path)}")
             self._ensure_data_dir()
             self.init_database()
             self.initialized = True
@@ -131,6 +142,35 @@ class ParkingDatabase:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )''')
 
+            # ===== جدول کاربران =====
+            c.execute('''CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                full_name TEXT,
+                role TEXT DEFAULT 'operator',
+                is_active BOOLEAN DEFAULT 1,
+                last_login TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )''')
+
+            # ===== جدول لاگ ورود =====
+            c.execute('''CREATE TABLE IF NOT EXISTS login_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                username TEXT,
+                action TEXT,
+                ip_address TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )''')
+
+            # ایندکس‌های جدول کاربران
+            c.execute('''CREATE INDEX IF NOT EXISTS idx_users_username 
+                        ON users(username)''')
+            c.execute('''CREATE INDEX IF NOT EXISTS idx_login_logs_user 
+                        ON login_logs(user_id)''')
             # جدول لاگ رویدادها
             c.execute('''CREATE TABLE IF NOT EXISTS event_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -184,7 +224,10 @@ class ParkingDatabase:
         """درج تنظیمات پیش‌فرض"""
         defaults = [
             ('parking_name', 'پارکینگ اصلی', 'نام پارکینگ'),
-            ('hourly_rate', '5000', 'نرخ هر ساعت (تومان)'),
+            # ===== نرخ‌های جدید =====
+            ('first_hour_rate', '10000', 'نرخ ساعت اول (تومان)'),
+            ('next_hours_rate', '5000', 'نرخ ساعت دوم به بعد (تومان)'),
+            # ========================
             ('free_minutes', '15', 'دقایق رایگان'),
             ('max_daily_cost', '50000', 'سقف هزینه روزانه (تومان)'),
             ('currency_unit', 'تومان', 'واحد پول'),
@@ -199,7 +242,6 @@ class ParkingDatabase:
             ('theme', 'طلایی-سرمه‌ای', 'تم برنامه'),
             ('font_size', '9', 'اندازه فونت'),
         ]
-
         for key, value, desc in defaults:
             cursor.execute('''INSERT OR IGNORE INTO settings (key, value, description) 
                             VALUES (?, ?, ?)''', (key, value, desc))
@@ -440,7 +482,7 @@ class ParkingDatabase:
             return c.lastrowid
 
     def car_exit(self, plate_number, exit_data=None):
-        """ثبت خروج خودرو و محاسبه هزینه"""
+        """ثبت خروج خودرو و محاسبه هزینه با نرخ ساعت اول و دوم"""
         if exit_data is None:
             exit_data = {}
 
@@ -459,19 +501,32 @@ class ParkingDatabase:
             total_minutes = int(duration.total_seconds() / 60)
             total_hours = total_minutes / 60
 
-            hourly_rate = float(self.get_setting('hourly_rate', '5000'))
+            # ===== دریافت تنظیمات نرخ‌ها =====
+            first_hour_rate = float(self.get_setting('first_hour_rate', '10000'))
+            next_hours_rate = float(self.get_setting('next_hours_rate', '5000'))
             free_minutes = int(self.get_setting('free_minutes', '15'))
             max_daily = float(self.get_setting('max_daily_cost', '50000'))
 
+            # ===== محاسبه هزینه =====
             if total_minutes <= free_minutes:
                 cost = 0
                 discount_type = 'free_short_stop'
                 discount_percent = 100
             else:
-                hours_charged = max(1, int(total_hours + 0.99))
-                cost = hours_charged * hourly_rate
+                # ===== نرخ ساعت اول و دوم =====
+                if total_hours <= 1:
+                    # فقط ساعت اول
+                    cost = first_hour_rate
+                else:
+                    # ساعت اول + ساعات بعدی
+                    extra_hours = int(total_hours)  # تعداد ساعات کامل اضافه
+                    cost = first_hour_rate + (extra_hours * next_hours_rate)
+
+                # بررسی سقف روزانه
                 if cost > max_daily:
                     cost = max_daily
+
+                # بررسی تخفیف‌های ویژه
                 discount_percent = self._calculate_discount(car['plate_type'])
                 discount_type = 'special' if discount_percent > 0 else 'none'
                 if discount_percent > 0:
@@ -522,7 +577,6 @@ class ParkingDatabase:
                 'discount_type': discount_type,
                 'card_number': card_number
             }
-
     def _calculate_discount(self, plate_type):
         """محاسبه درصد تخفیف بر اساس نوع پلاک و زمان"""
         with self.get_connection() as conn:
