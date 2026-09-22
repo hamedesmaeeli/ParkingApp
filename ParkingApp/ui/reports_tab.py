@@ -1,10 +1,10 @@
 """
-تب گزارش‌گیری - نسخه کامل با قابلیت باز کردن فایل و پوشه
+تب گزارش‌گیری - نسخه کامل با تقویم شمسی
 """
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QGroupBox, QDateEdit, QComboBox,
+    QPushButton, QGroupBox, QComboBox,
     QMessageBox, QFrame, QGridLayout
 )
 from PyQt5.QtCore import Qt, QDate
@@ -16,10 +16,11 @@ import platform
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from reports import ReportGenerator
+from ui.shamsi_date_edit import ShamsiDateEdit  # ← اضافه شد
 
 
 class ReportsTab(QWidget):
-    """تب گزارش‌گیری"""
+    """تب گزارش‌گیری با تقویم شمسی"""
 
     def __init__(self, database):
         super().__init__()
@@ -95,18 +96,16 @@ class ReportsTab(QWidget):
         custom_layout = QGridLayout()
         custom_layout.setSpacing(15)
 
-        # تاریخ شروع
+        # ===== تاریخ شروع (شمسی) =====
         custom_layout.addWidget(QLabel("از تاریخ:"), 0, 0)
-        self.date_from = QDateEdit()
-        self.date_from.setCalendarPopup(True)
+        self.date_from = ShamsiDateEdit()  # ← ShamsiDateEdit
         self.date_from.setDate(QDate.currentDate().addDays(-30))
         self.date_from.setStyleSheet("padding: 8px; border: 2px solid #ddd; border-radius: 5px;")
         custom_layout.addWidget(self.date_from, 0, 1)
 
-        # تاریخ پایان
+        # ===== تاریخ پایان (شمسی) =====
         custom_layout.addWidget(QLabel("تا تاریخ:"), 0, 2)
-        self.date_to = QDateEdit()
-        self.date_to.setCalendarPopup(True)
+        self.date_to = ShamsiDateEdit()  # ← ShamsiDateEdit
         self.date_to.setDate(QDate.currentDate())
         self.date_to.setStyleSheet("padding: 8px; border: 2px solid #ddd; border-radius: 5px;")
         custom_layout.addWidget(self.date_to, 0, 3)
@@ -122,19 +121,8 @@ class ReportsTab(QWidget):
             QPushButton:hover { background-color: #2ecc71; }
         """)
         excel_btn.clicked.connect(self.custom_excel)
-        custom_layout.addWidget(excel_btn, 1, 0, 1, 2)
+        custom_layout.addWidget(excel_btn, 1, 0, 1, 4)
 
-        pdf_btn = QPushButton("📄 خروجی PDF")
-        pdf_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #e74c3c; color: white;
-                padding: 12px; border-radius: 8px; font-weight: bold;
-                border: none;
-            }
-            QPushButton:hover { background-color: #c0392b; }
-        """)
-        pdf_btn.clicked.connect(self.custom_pdf)
-        custom_layout.addWidget(pdf_btn, 1, 2, 1, 2)
 
         custom_group.setLayout(custom_layout)
         layout.addWidget(custom_group)
@@ -201,31 +189,31 @@ class ReportsTab(QWidget):
             QMessageBox.critical(self, "❌ خطا", str(e))
 
     def monthly_report(self):
-        """گزارش ماهانه"""
+        """گزارش ماهانه (فقط Excel)"""
         try:
             result = self.generator.monthly_report()
 
             reply = QMessageBox.question(
                 self, "✅ گزارش ماهانه",
                 f"گزارش ماهانه با موفقیت ایجاد شد.\n\n"
-                f"📁 Excel: {result['excel']}\n"
-                f"📄 PDF: {result['pdf']}\n\n"
-                f"آیا می‌خواهید فایل‌ها را باز کنید؟",
+                f"📁 Excel: {result['excel']}\n\n"
+                f"آیا می‌خواهید فایل را باز کنید؟",
                 QMessageBox.Yes | QMessageBox.No
             )
 
             if reply == QMessageBox.Yes:
                 self.open_file(result['excel'])
-                self.open_file(result['pdf'])
 
         except Exception as e:
             QMessageBox.critical(self, "❌ خطا", str(e))
 
     def custom_excel(self):
-        """خروجی Excel سفارشی"""
+        """خروجی Excel سفارشی با تقویم شمسی"""
         try:
-            date_from = self.date_from.date().toString("yyyy-MM-dd")
-            date_to = self.date_to.date().toString("yyyy-MM-dd")
+            # ===== دریافت تاریخ میلادی از ویجت شمسی =====
+            date_from = self.date_from.get_shamsi_date()
+            date_to = self.date_to.get_shamsi_date()
+            # ============================================
 
             filepath = self.generator.excel.export_history(date_from, date_to)
 
@@ -241,29 +229,10 @@ class ReportsTab(QWidget):
 
         except Exception as e:
             QMessageBox.critical(self, "❌ خطا", str(e))
+            import traceback
+            traceback.print_exc()
 
-    def custom_pdf(self):
-        """خروجی PDF سفارشی"""
-        try:
-            date_from = self.date_from.date().toString("yyyy-MM-dd")
-            date_to = self.date_to.date().toString("yyyy-MM-dd")
-
-            filepath = self.generator.pdf.export_history(date_from, date_to)
-
-            reply = QMessageBox.question(
-                self, "✅ خروجی PDF",
-                f"فایل PDF با موفقیت ایجاد شد.\n\n📁 {filepath}\n\n"
-                f"آیا می‌خواهید فایل را باز کنید؟",
-                QMessageBox.Yes | QMessageBox.No
-            )
-
-            if reply == QMessageBox.Yes:
-                self.open_file(filepath)
-
-        except Exception as e:
-            QMessageBox.critical(self, "❌ خطا", str(e))
-
-    # ======================== عملیات فایل ========================
+        # ======================== عملیات فایل ========================
 
     def open_file(self, filepath):
         """باز کردن فایل با برنامه پیش‌فرض سیستم"""
@@ -274,9 +243,9 @@ class ReportsTab(QWidget):
         try:
             if platform.system() == 'Windows':
                 os.startfile(filepath)
-            elif platform.system() == 'Darwin':  # macOS
+            elif platform.system() == 'Darwin':
                 subprocess.call(['open', filepath])
-            else:  # Linux
+            else:
                 subprocess.call(['xdg-open', filepath])
         except Exception as e:
             QMessageBox.critical(self, "❌ خطا", f"خطا در باز کردن فایل:\n{str(e)}")

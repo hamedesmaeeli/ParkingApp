@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush
 import sys, os
+from utils import to_shamsi
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from auth import UserManager
@@ -112,8 +113,13 @@ class UsersTab(QWidget):
                 self.table.setItem(i, 3, status_item)
 
                 # آخرین ورود
+                # ===== کد اصلاح‌شده (شمسی) =====
                 last_login = user.get('last_login', '')
-                self.table.setItem(i, 4, QTableWidgetItem(last_login or '—'))
+                if last_login:
+                    last_login = to_shamsi(last_login, '%Y/%m/%d %H:%M')
+                else:
+                    last_login = '—'
+                self.table.setItem(i, 4, QTableWidgetItem(last_login))
 
                 # عملیات
                 btn_widget = QWidget()

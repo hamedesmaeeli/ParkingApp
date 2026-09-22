@@ -90,9 +90,13 @@ class ExcelExporter:
         return filepath
 
     def export_daily_summary(self, date=None, filename=None):
-        """خروجی Excel از خلاصه روزانه"""
+        """خروجی Excel از خلاصه روزانه با تاریخ شمسی"""
         if not date:
             date = datetime.now().strftime('%Y-%m-%d')
+
+        # ===== تبدیل تاریخ به شمسی =====
+        shamsi_date = to_shamsi(date, '%Y/%m/%d')
+        # ================================
 
         wb = Workbook()
         ws = wb.active
@@ -102,7 +106,7 @@ class ExcelExporter:
         # ===== هدر =====
         ws.merge_cells('A1:D1')
         title_cell = ws['A1']
-        title_cell.value = f"گزارش روزانه پارکینگ - {date}"
+        title_cell.value = f"گزارش روزانه پارکینگ - {shamsi_date}"  # ← شمسی
         title_cell.font = Font(name='Tahoma', size=14, bold=True, color='2c3e50')
         title_cell.alignment = Alignment(horizontal='center', vertical='center')
 
@@ -115,6 +119,7 @@ class ExcelExporter:
         ws['B3'].font = Font(bold=True)
 
         rows = [
+            ("تاریخ", shamsi_date),  # ← شمسی
             ("تعداد خودروهای خارج‌شده", stats['daily']['count']),
             ("درآمد کل (تومان)", f"{stats['daily']['income']:,.0f}"),
             ("میانگین مدت توقف (ساعت)", f"{stats['daily']['avg_duration']:.1f}"),

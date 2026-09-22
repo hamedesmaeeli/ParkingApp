@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor, QBrush
 from rfid import RFIDIntegration
-
+from utils import to_shamsi
 
 class CardsTab(QWidget):
     """تب مدیریت کارت‌های پارکینگ"""
@@ -204,8 +204,13 @@ class CardsTab(QWidget):
                 self.table.setItem(i, 3, item)
 
                 # زمان اختصاص
+                # ===== کد اصلاح‌شده (شمسی) =====
                 assigned_at = card.get('assigned_at', '')
-                item = QTableWidgetItem(assigned_at if assigned_at else '—')
+                if assigned_at:
+                    assigned_at = to_shamsi(assigned_at, '%Y/%m/%d %H:%M')
+                else:
+                    assigned_at = '—'
+                item = QTableWidgetItem(assigned_at)
                 item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(i, 4, item)
 
