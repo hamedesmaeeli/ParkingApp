@@ -11,6 +11,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont, QColor
 from datetime import datetime
 import sys, os
+from utils import to_shamsi
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from plate_utils import IranianPlate
@@ -241,7 +242,7 @@ class ActiveTab(QWidget):
                 self.table.setItem(i, 3, QTableWidgetItem(plate.province))
 
                 # زمان ورود
-                self.table.setItem(i, 4, QTableWidgetItem(entry_time.strftime('%H:%M:%S')))
+                self.table.setItem(i, 4, QTableWidgetItem(to_shamsi(entry_time, '%H:%M')))
 
                 # مدت حضور
                 if hours >= 1:

@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from plate_utils import IranianPlate
 from alpr.engine import ALPREngine
 from rfid import RFIDIntegration
-
+from utils import to_shamsi
 
 class UnifiedWidget(QWidget):
     """فرم یکپارچه ورود/خروج"""
@@ -529,7 +529,7 @@ class UnifiedWidget(QWidget):
                 self, "✅ ورود ثبت شد",
                 f"🚗 پلاک: {self.current_plate}\n"
                 f"🆔 کارت: {card_number}\n"
-                f"⏰ زمان: {datetime.now().strftime('%H:%M:%S')}"
+                f"⏰ زمان: {to_shamsi(datetime.now(), '%H:%M:%S')}"
             )
 
             self.car_entered.emit(plate_data)
@@ -548,7 +548,7 @@ class UnifiedWidget(QWidget):
             for car in cars:
                 if car['plate_number'] == plate:
                     entry_time = datetime.fromisoformat(car['entry_time'])
-                    self.entry_time_label.setText(f"⏰ زمان ورود: {entry_time.strftime('%H:%M:%S')}")
+                    self.entry_time_label.setText(f"⏰ زمان ورود: {to_shamsi(entry_time, '%H:%M:%S')}")
 
                     duration = datetime.now() - entry_time
                     hours = duration.total_seconds() / 3600

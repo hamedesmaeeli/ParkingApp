@@ -1,5 +1,5 @@
 """
-تب تاریخچه - نسخه ساده و اسکرول‌دار
+تب تاریخچه - نسخه ساده و اسکرول‌دار با تاریخ شمسی
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -14,6 +14,8 @@ import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from plate_utils import IranianPlate
+from ui.shamsi_date_edit import ShamsiDateEdit
+from utils import to_shamsi  # ← اضافه شد
 
 
 class HistoryTab(QWidget):
@@ -67,18 +69,17 @@ class HistoryTab(QWidget):
         self.search_input.setStyleSheet("font-size: 14px; padding: 10px; border: 2px solid #ddd; border-radius: 6px;")
         self.search_input.setMinimumHeight(40)
 
-        # تاریخ
-        self.date_from = QDateEdit()
-        self.date_from.setCalendarPopup(True)
+        # ===== تاریخ شمسی (ShamsiDateEdit) =====
+        self.date_from = ShamsiDateEdit()
         self.date_from.setDate(QDate.currentDate().addDays(-7))
         self.date_from.setStyleSheet("font-size: 14px; padding: 8px; border: 2px solid #ddd; border-radius: 6px;")
         self.date_from.setMinimumHeight(40)
 
-        self.date_to = QDateEdit()
-        self.date_to.setCalendarPopup(True)
+        self.date_to = ShamsiDateEdit()
         self.date_to.setDate(QDate.currentDate())
         self.date_to.setStyleSheet("font-size: 14px; padding: 8px; border: 2px solid #ddd; border-radius: 6px;")
         self.date_to.setMinimumHeight(40)
+        # ======================================
 
         # نوع پلاک
         self.type_filter = QComboBox()
@@ -227,8 +228,11 @@ class HistoryTab(QWidget):
         """بارگذاری داده‌ها"""
         try:
             plate_number = self.search_input.text().strip() or None
-            date_from = self.date_from.date().toString("yyyy-MM-dd")
-            date_to = self.date_to.date().toString("yyyy-MM-dd")
+
+            # ===== دریافت تاریخ میلادی از ویجت شمسی =====
+            date_from = self.date_from.get_shamsi_date()
+            date_to = self.date_to.get_shamsi_date()
+            # ============================================
 
             type_map = {"همه": None, "شخصی": "personal", "تاکسی": "taxi",
                        "دولتی": "governmental", "نظامی": "military", "سیاسی": "diplomatic"}
@@ -252,9 +256,11 @@ class HistoryTab(QWidget):
 
         except Exception as e:
             QMessageBox.warning(self, "خطا", str(e))
+            import traceback
+            traceback.print_exc()
 
     def display_records(self, records):
-        """نمایش رکوردها"""
+        """نمایش رکوردها با تاریخ شمسی"""
         self.table.setRowCount(0)
 
         for i, record in enumerate(records):
@@ -269,8 +275,14 @@ class HistoryTab(QWidget):
             self.table.setItem(i, 1, plate_item)
 
             self.table.setItem(i, 2, QTableWidgetItem(plate.type_display))
-            self.table.setItem(i, 3, QTableWidgetItem(record['entry_time'][:16]))
-            self.table.setItem(i, 4, QTableWidgetItem(record['exit_time'][:16]))
+
+            # ===== تبدیل تاریخ‌ها به شمسی =====
+            entry_time = to_shamsi(record['entry_time'], '%Y/%m/%d %H:%M')
+            exit_time = to_shamsi(record['exit_time'], '%Y/%m/%d %H:%M')
+            # =====================================
+
+            self.table.setItem(i, 3, QTableWidgetItem(entry_time))  # ← شمسی
+            self.table.setItem(i, 4, QTableWidgetItem(exit_time))   # ← شمسی
             self.table.setItem(i, 5, QTableWidgetItem(f"{record['duration_hours']:.1f} ساعت"))
 
             cost_item = QTableWidgetItem(f"{record['final_cost']:,.0f} تومان")
@@ -298,11 +310,16 @@ class HistoryTab(QWidget):
         self.load_data()
 
     def export_excel(self):
-        """خروجی Excel"""
+        """خروجی Excel با تاریخ شمسی"""
         try:
+            # ===== دریافت تاریخ میلادی =====
+            date_from = self.date_from.get_shamsi_date()
+            date_to = self.date_to.get_shamsi_date()
+            # =================================
+
             result = self.db.get_history(
-                date_from=self.date_from.date().toString("yyyy-MM-dd"),
-                date_to=self.date_to.date().toString("yyyy-MM-dd"),
+                date_from=date_from,
+                date_to=date_to,
                 per_page=10000
             )
 
@@ -323,12 +340,17 @@ class HistoryTab(QWidget):
                 cell.alignment = Alignment(horizontal='center', vertical='center')
 
             for i, r in enumerate(result['records'], 1):
+                # ===== تبدیل تاریخ‌ها به شمسی برای Excel =====
+                entry_time = to_shamsi(r['entry_time'], '%Y/%m/%d %H:%M')
+                exit_time = to_shamsi(r['exit_time'], '%Y/%m/%d %H:%M')
+                # =============================================
+
                 ws.cell(row=i+1, column=1, value=i)
                 ws.cell(row=i+1, column=2, value=r['plate_number'])
                 ws.cell(row=i+1, column=3, value=r.get('plate_type', 'شخصی'))
                 ws.cell(row=i+1, column=4, value=r.get('province', ''))
-                ws.cell(row=i+1, column=5, value=r['entry_time'][:16])
-                ws.cell(row=i+1, column=6, value=r['exit_time'][:16])
+                ws.cell(row=i+1, column=5, value=entry_time)  # ← شمسی
+                ws.cell(row=i+1, column=6, value=exit_time)   # ← شمسی
                 ws.cell(row=i+1, column=7, value=f"{r['duration_hours']:.1f}")
                 ws.cell(row=i+1, column=8, value=f"{r['final_cost']:,.0f}")
 
@@ -343,3 +365,7 @@ class HistoryTab(QWidget):
 
         except ImportError:
             QMessageBox.warning(self, "خطا", "کتابخانه openpyxl نصب نیست\npip install openpyxl")
+        except Exception as e:
+            QMessageBox.critical(self, "خطا", str(e))
+            import traceback
+            traceback.print_exc()

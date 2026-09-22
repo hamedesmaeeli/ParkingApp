@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer
 from datetime import datetime
 import sys, os
-
+from utils import now_shamsi
 from ui.reports_tab import ReportsTab
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -371,7 +371,8 @@ class MainWindow(QMainWindow):
         sep.setStyleSheet("color: #7f8c8d; background: transparent; font-size: 12px;")
 
         # کپی‌رایت
-        copyright_label = QLabel("© ۱۴۰۳")
+        copyright_label = QLabel(f"© {now_shamsi('%Y')}")
+
         copyright_label.setStyleSheet("font-size: 10px; color: #95a5a6; background: transparent;")
 
         footer_layout.addWidget(app_info)
@@ -400,7 +401,8 @@ class MainWindow(QMainWindow):
     def update_time(self):
         """بروزرسانی زمان"""
         now = datetime.now()
-        self.time_label.setText(now.strftime("%Y/%m/%d  %H:%M:%S"))
+        #self.time_label.setText(now.strftime("%Y/%m/%d  %H:%M:%S"))
+        self.time_label.setText(now_shamsi())
         self.update_status()
 
     def update_status(self):

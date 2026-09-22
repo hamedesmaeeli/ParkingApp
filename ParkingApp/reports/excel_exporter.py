@@ -7,7 +7,7 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
-
+from utils import to_shamsi
 
 class ExcelExporter:
     """تولید فایل Excel از گزارش‌ها"""
@@ -56,8 +56,8 @@ class ExcelExporter:
                 record.get('card_number', '-'),
                 record.get('plate_type', 'شخصی'),
                 record.get('province', ''),
-                record['entry_time'][:16],
-                record['exit_time'][:16],
+                to_shamsi(record['entry_time'], '%Y/%m/%d %H:%M'),
+                to_shamsi(record['exit_time'], '%Y/%m/%d %H:%M'),
                 f"{record['duration_hours']:.1f}",
                 f"{record['cost']:,.0f}",
                 f"{record['discount_percent']}%" if record['discount_percent'] > 0 else "-",
