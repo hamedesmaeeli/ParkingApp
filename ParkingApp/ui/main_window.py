@@ -23,6 +23,7 @@ from ui.camera_widget import CameraWidget
 from ui.cards_tab import CardsTab  # اضافه کنید
 from ui.unified_widget import UnifiedWidget
 from rfid import RFIDIntegration
+from ui.camera_settings_tab import CameraSettingsTab
 class MainWindow(QMainWindow):
     def __init__(self, db, user_manager=None):
         super().__init__()
@@ -185,6 +186,16 @@ class MainWindow(QMainWindow):
             users_scroll.setWidget(self.users_tab)
             users_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             self.tab_widget.addTab(users_scroll, "  👥  مدیریت کاربران  ")
+
+            # ===== تب ۸: تنظیمات دوربین =====
+            # ===== تب ۸: تنظیمات دوربین =====
+        if self.has_access('settings'):
+            self.camera_settings_tab = CameraSettingsTab(self.db)
+            camera_scroll = QScrollArea()
+            camera_scroll.setWidgetResizable(True)
+            camera_scroll.setWidget(self.camera_settings_tab)
+            camera_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.tab_widget.addTab(camera_scroll, "  📷  تنظیمات دوربین  ")
 
         # ============ اضافه کردن tab_widget به layout (بیرون از شرط‌ها) ============
         main_layout.addWidget(self.tab_widget)

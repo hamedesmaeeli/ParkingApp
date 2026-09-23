@@ -241,6 +241,14 @@ class ParkingDatabase:
             ('auto_detect_plate', 'true', 'تشخیص خودکار پلاک'),
             ('theme', 'طلایی-سرمه‌ای', 'تم برنامه'),
             ('font_size', '9', 'اندازه فونت'),
+            # ===== تنظیمات دوربین =====
+            ('camera_type', 'webcam', 'نوع دوربین (webcam/ip)'),
+            ('camera_index', '0', 'شماره وب‌کم'),
+            ('camera_ip', '', 'آدرس IP دوربین'),
+            ('camera_port', '554', 'پورت دوربین IP'),
+            ('camera_username', 'admin', 'نام کاربری دوربین IP'),
+            ('camera_password', '', 'رمز عبور دوربین IP'),
+            ('camera_rtsp_path', '/Streaming/Channels/101', 'مسیر RTSP دوربین'),
         ]
         for key, value, desc in defaults:
             cursor.execute('''INSERT OR IGNORE INTO settings (key, value, description) 

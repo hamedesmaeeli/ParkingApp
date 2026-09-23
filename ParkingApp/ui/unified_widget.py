@@ -244,10 +244,48 @@ class UnifiedWidget(QWidget):
     # ======================== دوربین ========================
 
     def start_camera(self):
+        """شروع دوربین بر اساس تنظیمات (وب‌کم یا دوربین IP)"""
         try:
-            self.capture = cv2.VideoCapture(0)
+            # ===== دریافت تنظیمات دوربین =====
+            camera_type = self.db.get_setting('camera_type', 'webcam')
+
+            if camera_type == 'ip':
+                # ===== دوربین IP (شبکه) =====
+                ip = self.db.get_setting('camera_ip', '')
+                port = self.db.get_setting('camera_port', '554')
+                username = self.db.get_setting('camera_username', 'admin')
+                password = self.db.get_setting('camera_password', '')
+                rtsp_path = self.db.get_setting('camera_rtsp_path', '/Streaming/Channels/101')
+
+                if not ip:
+                    QMessageBox.warning(
+                        self, "⚠️ خطا",
+                        "آدرس IP دوربین در تنظیمات وارد نشده است!\n"
+                        "لطفاً به تب 'تنظیمات دوربین' بروید و آدرس IP را وارد کنید."
+                    )
+                    return
+
+                # ساخت آدرس RTSP
+                rtsp_url = f"rtsp://{username}:{password}@{ip}:{port}{rtsp_path}"
+                self.capture = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+                print(f"📷 اتصال به دوربین IP: {ip}")
+
+                # تنظیم بافر برای کاهش تأخیر
+                self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            else:
+                # ===== وب‌کم (USB) =====
+                index = int(self.db.get_setting('camera_index', '0'))
+                self.capture = cv2.VideoCapture(index)
+                print(f"📷 اتصال به وب‌کم {index}")
+            # ================================
+
             if not self.capture.isOpened():
-                QMessageBox.warning(self, "⚠️ خطا", "دوربین در دسترس نیست")
+                QMessageBox.warning(
+                    self, "⚠️ خطا",
+                    f"دوربین در دسترس نیست!\n"
+                    f"نوع دوربین: {'IP' if camera_type == 'ip' else 'وب‌کم'}\n"
+                    f"لطفاً تنظیمات دوربین را بررسی کنید."
+                )
                 return
 
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -265,6 +303,8 @@ class UnifiedWidget(QWidget):
 
         except Exception as e:
             QMessageBox.critical(self, "❌ خطا", str(e))
+            import traceback
+            traceback.print_exc()
 
     def update_camera(self):
         if self.capture and self.camera_active:
