@@ -13,3 +13,8 @@ pip-selfcheck.json
 captured_plates/
 images/
 screenshots/
+
+# ===== PyInstaller =====
+build/
+dist/
+*.spec.bak
