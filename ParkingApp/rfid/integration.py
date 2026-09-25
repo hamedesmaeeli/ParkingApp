@@ -6,9 +6,9 @@ from .reader import RFIDReader
 class RFIDIntegration(QObject):
     card_scanned = pyqtSignal(str)
 
-    def __init__(self, port="COM6", baudrate=115200):
+    def __init__(self, db=None, port=None, baudrate=None):
         super().__init__()
-        self.reader = RFIDReader(port, baudrate)
+        self.reader = RFIDReader(db=db, port=port, baudrate=baudrate)
         self.reader.card_detected.connect(self.on_card_detected)
         self.reader.error_occurred.connect(self.on_error)
         self.reader.status_changed.connect(self.on_status_changed)

@@ -249,6 +249,10 @@ class ParkingDatabase:
             ('camera_username', 'admin', 'نام کاربری دوربین IP'),
             ('camera_password', '', 'رمز عبور دوربین IP'),
             ('camera_rtsp_path', '/Streaming/Channels/101', 'مسیر RTSP دوربین'),
+            # ===== تنظیمات RFID =====
+            ('rfid_port', 'COM6', 'پورت RFID'),
+            ('rfid_baudrate', '115200', 'نرخ باود RFID (9600/115200)'),
+            ('rfid_address', '0', 'آدرس دستگاه RFID'),
         ]
         for key, value, desc in defaults:
             cursor.execute('''INSERT OR IGNORE INTO settings (key, value, description) 

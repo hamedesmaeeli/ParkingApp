@@ -24,6 +24,7 @@ from ui.cards_tab import CardsTab  # اضافه کنید
 from ui.unified_widget import UnifiedWidget
 from rfid import RFIDIntegration
 from ui.camera_settings_tab import CameraSettingsTab
+from ui.rfid_settings_tab import RFIDSettingsTab
 class MainWindow(QMainWindow):
     def __init__(self, db, user_manager=None):
         super().__init__()
@@ -43,7 +44,7 @@ class MainWindow(QMainWindow):
         print("=" * 50 + "\n")
         # =================
 
-        self.rfid = RFIDIntegration()
+        self.rfid = RFIDIntegration(db=self.db)
         self.rfid.start()
         self.VERSION = "3.0.0"
         self.init_ui()
@@ -75,11 +76,11 @@ class MainWindow(QMainWindow):
             QTabBar::tab {
                 background-color: #2c3e50;
                 color: white;
-                padding: 12px 35px;
+                padding: 10px 15px;
                 margin-right: 3px;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: bold;
-                min-width: 120px;
+                min-width: 100px;
             }
             QTabBar::tab:selected {
                 background-color: #3498db;
@@ -196,6 +197,16 @@ class MainWindow(QMainWindow):
             camera_scroll.setWidget(self.camera_settings_tab)
             camera_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             self.tab_widget.addTab(camera_scroll, "  📷  تنظیمات دوربین  ")
+
+         # ===== تب ۹: تنظیمات RFID =====
+        if self.has_access('settings'):
+            print("   ✅ اضافه کردن تب تنظیمات RFID")
+            self.rfid_settings_tab = RFIDSettingsTab(self.db)
+            rfid_scroll = QScrollArea()
+            rfid_scroll.setWidgetResizable(True)
+            rfid_scroll.setWidget(self.rfid_settings_tab)
+            rfid_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.tab_widget.addTab(rfid_scroll, "  📡  تنظیمات RFID  ")
 
         # ============ اضافه کردن tab_widget به layout (بیرون از شرط‌ها) ============
         main_layout.addWidget(self.tab_widget)

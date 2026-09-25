@@ -18,10 +18,19 @@ class RFIDReader(QObject):
     error_occurred = pyqtSignal(str)
     status_changed = pyqtSignal(str)
 
-    def __init__(self, port="COM6", baudrate=115200):
+    def __init__(self, db=None, port=None, baudrate=None):
         super().__init__()
-        self.port = port
-        self.baudrate = baudrate
+        self.db = db
+
+        # ===== دریافت تنظیمات از دیتابیس =====
+        if db:
+            self.port = port or db.get_setting('rfid_port', 'COM6')
+            self.baudrate = baudrate or int(db.get_setting('rfid_baudrate', '115200'))
+        else:
+            self.port = port or 'COM6'
+            self.baudrate = baudrate or 115200
+        # =====================================
+
         self.timeout = 2
         self.is_running = False
         self.reader_thread = None
@@ -29,9 +38,7 @@ class RFIDReader(QObject):
         self.STX = 0x02
         self.ADDR = 0x00
 
-        # ===== تست اتصال (اختیاری - حذف شد) =====
-        # دیگر اتصال را در __init__ بررسی نمی‌کنیم
-        print(f"🔌 RFIDReader آماده: {port}@{baudrate}")
+        print(f"🔌 RFIDReader آماده: {self.port}@{self.baudrate}")
 
     def send_command(self, command, data=[]):
         """ارسال دستور به دستگاه"""
